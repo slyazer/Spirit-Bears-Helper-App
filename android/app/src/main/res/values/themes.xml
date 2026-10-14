@@ -1,0 +1,8 @@
+<resources>
+    <style name="Theme.MacroMonitor" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/mm_background</item>
+        <item name="android:statusBarColor">@color/mm_background</item>
+        <item name="android:navigationBarColor">@color/mm_background</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>

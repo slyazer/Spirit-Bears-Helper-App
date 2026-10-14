@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The bridge runs over a private overlay network (Tailscale) using plain
+     HTTP, so cleartext must be permitted. No public endpoints are exposed. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>
