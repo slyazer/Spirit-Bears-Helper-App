@@ -18,3 +18,4 @@ atro_reference/ — reference copies (not for commit in typical forks; see .giti
 - docs/ — API/ARCHITECTURE/SETUP
 
 See BUILD_STATUS.md for current state. APK: MacroMonitor-0.1.0-debug.apk (if present).
+.
