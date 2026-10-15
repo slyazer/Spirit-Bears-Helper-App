@@ -30,3 +30,10 @@ val RateDark = Color(0xFF145A76)
 val StatusLight = Color(0xFFBD73D5)
 val StatusMid = Color(0xFF7546A5)
 val StatusDark = Color(0xFF49327E)
+
+// Nectar bar colors (match Natro's StatMonitor buff hues, 0xAARRGGBB).
+val NectarComforting = Color(0xFF7E9EB3)
+val NectarMotivating = Color(0xFF937DB3)
+val NectarSatisfying = Color(0xFFB398A7)
+val NectarRefreshing = Color(0xFF78B375)
+val NectarInvigorating = Color(0xFFB35951)

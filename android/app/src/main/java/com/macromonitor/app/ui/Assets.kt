@@ -1,7 +1,13 @@
 package com.macromonitor.app.ui
 
 import androidx.annotation.DrawableRes
+import androidx.compose.ui.graphics.Color
 import com.macromonitor.app.R
+import com.macromonitor.app.ui.theme.NectarComforting
+import com.macromonitor.app.ui.theme.NectarInvigorating
+import com.macromonitor.app.ui.theme.NectarMotivating
+import com.macromonitor.app.ui.theme.NectarRefreshing
+import com.macromonitor.app.ui.theme.NectarSatisfying
 
 /**
  * Maps bridge-reported field and planter names onto the bundled Bee Swarm
@@ -113,6 +119,19 @@ object Assets {
             key.contains("sticker") -> R.drawable.planter_sticker
             key.contains("ticket") -> R.drawable.planter_ticket
             else -> null
+        }
+    }
+
+    /** Bar colour for one of BSS's five nectars (matches Natro's report hues). */
+    fun nectarColor(name: String?): Color {
+        val key = name?.lowercase() ?: return NectarComforting
+        return when {
+            key.startsWith("comfort") -> NectarComforting
+            key.startsWith("motiv") -> NectarMotivating
+            key.startsWith("satisf") -> NectarSatisfying
+            key.startsWith("refresh") -> NectarRefreshing
+            key.startsWith("invig") -> NectarInvigorating
+            else -> NectarComforting
         }
     }
 }

@@ -19,6 +19,7 @@ from ..models import (
     CommandResponse,
     LogEntry,
     LogsResponse,
+    NectarInfo,
     PlanterInfo,
     PlantersResponse,
     ReportImage,
@@ -38,7 +39,7 @@ ALLOWED_COMMANDS: dict[str, str] = {
     "stop": "Stop the macro",
     "pause": "Pause the macro",
     "resume": "Resume the macro",
-    "close": "Close a window by title (Natro 'close' command)",
+    "close": "Close the Roblox/game window (sent as '?close Roblox')",
     "planters": "Show planter timers",
     "timers": "Show timer report",
     "status": "Show macro status",
@@ -48,6 +49,16 @@ ALLOWED_COMMANDS: dict[str, str] = {
 _CACHE_TTL = 5.0  # seconds
 _START_HONEY_TTL = 900.0  # re-read the startup-report balance at most every 15 min
 _BOT_ID_TTL = 3600.0  # bot identity rarely changes
+
+# BSS's five nectars, in the order Natro's StatMonitor reports them. The patched
+# StatMonitor writes each level to [Status] Nectar<Name> in nm_config.ini.
+_NECTAR_ORDER: list[tuple[str, str]] = [
+    ("Comforting", "NectarComforting"),
+    ("Motivating", "NectarMotivating"),
+    ("Satisfying", "NectarSatisfying"),
+    ("Refreshing", "NectarRefreshing"),
+    ("Invigorating", "NectarInvigorating"),
+]
 
 
 # Human labels for the macro's current action (from the newest log line).
@@ -556,13 +567,34 @@ class NatroService:
                     est_percent=pct,
                 )
             )
+
+        nectars = self._nectars(ini)
+
         if not planters:
             return PlantersResponse(
                 id=self.account.id,
                 available=False,
                 reason="no active planters reported",
+                nectars=nectars,
             )
-        return PlantersResponse(id=self.account.id, available=True, planters=planters)
+        return PlantersResponse(
+            id=self.account.id, available=True, planters=planters, nectars=nectars
+        )
+
+    def _nectars(self, ini: NatroIni) -> list[NectarInfo]:
+        """Read the five nectar levels written by the patched StatMonitor.
+
+        Returns an empty list when the build has not persisted nectar, so the
+        app can hide the section instead of showing fabricated zeros.
+        """
+        out: list[NectarInfo] = []
+        for display, key in _NECTAR_ORDER:
+            raw = ini.get("Status", key)
+            if raw is None or not raw.strip():
+                continue
+            level = ini.get_float("Status", key)
+            out.append(NectarInfo(name=display, level=level))
+        return out
 
     # -- commands -------------------------------------------------------
     async def send_command(self, command: str, correlation_id: str | None) -> CommandResponse:
@@ -605,8 +637,13 @@ class NatroService:
                 detail="No bot token / command channel configured for this account.",
             )
 
+        # Natro's ``close`` command takes the target window title; without one it
+        # is a no-op. The app only ever wants to close the game window, so we
+        # always send ``?close Roblox``.
+        payload = "close Roblox" if key == "close" else key
+
         try:
-            await client.send_command(channel, f"{self._prefix}{key}")
+            await client.send_command(channel, f"{self._prefix}{payload}")
         except DiscordAPIError as exc:
             return CommandResponse(
                 id=self.account.id,

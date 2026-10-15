@@ -77,11 +77,17 @@ data class PlanterDto(
     @SerializedName("est_percent") val estPercent: Double? = null,
 )
 
+data class NectarDto(
+    val name: String = "",
+    val level: Double? = null,
+)
+
 data class PlantersResponseDto(
     val id: String = "",
     val available: Boolean = false,
     val reason: String? = null,
     val planters: List<PlanterDto> = emptyList(),
+    val nectars: List<NectarDto> = emptyList(),
 )
 
 data class CommandRequestDto(

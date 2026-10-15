@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -45,6 +44,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -149,28 +149,16 @@ private fun ReportRow(report: ReportImageDto, onClick: () -> Unit) {
             .border(1.dp, Border, RoundedCornerShape(14.dp))
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        val day = remember(report.arrivalTime) {
-            runCatching {
-                val local = java.time.OffsetDateTime.parse(report.arrivalTime)
-                    .atZoneSameInstant(java.time.ZoneId.systemDefault()).toLocalDate()
-                "${local.dayOfMonth.toString().padStart(2, '0')}/${local.monthValue.toString().padStart(2, '0')}"
-            }.getOrDefault("--")
-        }
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier
-                .size(40.dp)
-                .background(Brush.linearGradient(listOf(Accent, Color(0xFF6C72D9))), RoundedCornerShape(12.dp)),
+        Column(
+            modifier = Modifier.weight(1f),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text(day, color = Color(0xFF11152B), fontWeight = FontWeight.Black, fontSize = 12.sp)
-        }
-        Column(modifier = Modifier.weight(1f)) {
             Text(
                 Format.time(report.arrivalTime),
                 color = Text,
                 style = MaterialTheme.typography.titleMedium,
+                textAlign = TextAlign.Center,
             )
             Text(
                 report.summary ?: Format.dateTime(report.arrivalTime),
@@ -178,6 +166,7 @@ private fun ReportRow(report: ReportImageDto, onClick: () -> Unit) {
                 style = MaterialTheme.typography.bodySmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
                 modifier = Modifier.padding(top = 3.dp),
             )
         }

@@ -40,3 +40,33 @@ def test_ambiguous_account_refused(tmp_path) -> None:
     resp = asyncio.run(svc.send_command("start", None))
     assert resp.result == "rejected"
     assert "shared" in (resp.detail or "").lower() or "either" in (resp.detail or "").lower()
+
+
+def _capture(svc: NatroService) -> dict:
+    sent: dict = {}
+
+    class _FakeClient:
+        async def send_command(self, channel: str, payload: str) -> None:
+            sent["channel"] = channel
+            sent["payload"] = payload
+
+    svc._discord = lambda ini: _FakeClient()  # type: ignore[assignment]
+    svc._command_channel = lambda ini: "chan-1"  # type: ignore[assignment]
+    return sent
+
+
+def test_close_is_sent_with_roblox_target(tmp_path) -> None:
+    svc = _svc(tmp_path)
+    sent = _capture(svc)
+    resp = asyncio.run(svc.send_command("close", None))
+    assert resp.result == "accepted"
+    # Natro's `close` needs a window title or it is a no-op.
+    assert sent["payload"] == "?close Roblox"
+
+
+def test_other_commands_sent_verbatim(tmp_path) -> None:
+    svc = _svc(tmp_path)
+    sent = _capture(svc)
+    resp = asyncio.run(svc.send_command("start", None))
+    assert resp.result == "accepted"
+    assert sent["payload"] == "?start"

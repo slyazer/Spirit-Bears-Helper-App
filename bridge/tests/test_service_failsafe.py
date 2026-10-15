@@ -87,6 +87,36 @@ def test_status_uses_session_scoped_stats(tmp_path: Path) -> None:
     assert st.planters_collected == 3  # not all-time
 
 
+# -- nectar (written by the patched StatMonitor) -------------------------
+
+
+def test_planters_exposes_nectar_when_present(tmp_path: Path) -> None:
+    _write_ini(
+        tmp_path,
+        "[Status]\n"
+        "NectarComforting=42\n"
+        "NectarMotivating=0\n"
+        "NectarSatisfying=88.5\n"
+        "NectarRefreshing=10\n"
+        "NectarInvigorating=100\n",
+    )
+    resp = _svc(tmp_path).planters()
+    levels = {n.name: n.level for n in resp.nectars}
+    assert levels == {
+        "Comforting": 42.0,
+        "Motivating": 0.0,
+        "Satisfying": 88.5,
+        "Refreshing": 10.0,
+        "Invigorating": 100.0,
+    }
+
+
+def test_planters_nectar_empty_when_unpatched(tmp_path: Path) -> None:
+    _write_ini(tmp_path, "[Status]\nSessionTotalHoney=1.0 B\n")
+    resp = _svc(tmp_path).planters()
+    assert resp.nectars == []
+
+
 def test_status_unknown_when_stale(tmp_path: Path) -> None:
     _write_ini(tmp_path, "[Status]\nSessionTotalHoney=1.0 B\nHoneyAverage=10.0 B\n")
     _write(

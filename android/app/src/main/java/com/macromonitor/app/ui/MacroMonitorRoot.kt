@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.macromonitor.app.domain.ConnectionStatus
+import com.macromonitor.app.ui.components.AccountSwitcher
 import com.macromonitor.app.ui.components.ConnectionIndicator
 import com.macromonitor.app.ui.screens.ConnectScreen
 import com.macromonitor.app.ui.screens.DashboardScreen
@@ -121,17 +122,20 @@ private fun MainScaffold(vm: RootViewModel, s: UiState) {
                 onReload = vm::reload,
                 onSettings = { overflowMenu = true },
             )
+            AccountSwitcher(
+                accounts = s.accounts,
+                selected = s.selectedAccountId,
+                onSelect = vm::selectAccount,
+                modifier = Modifier.padding(bottom = 12.dp),
+            )
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 when (s.screen) {
                     Screen.Connect, Screen.Dashboard -> DashboardScreen(
-                        accounts = s.accounts,
-                        selectedAccountId = s.selectedAccountId,
                         status = s.status,
                         planters = s.planters,
                         commandHistory = s.commandHistory,
                         commandBusy = s.commandBusy,
                         onCommand = vm::sendCommand,
-                        onSelectAccount = vm::selectAccount,
                     )
                     Screen.Reports -> ReportsScreen(
                         reports = s.reports,

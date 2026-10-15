@@ -102,11 +102,22 @@ class PlanterInfo(BaseModel):
     est_percent: float | None = None
 
 
+class NectarInfo(BaseModel):
+    """One nectar type's current level (0-100), OCR'd from BSS's buff bar."""
+
+    name: str
+    level: float | None = None
+
+
 class PlantersResponse(BaseModel):
     id: str
     available: bool
     reason: str | None = None
     planters: list[PlanterInfo] = Field(default_factory=list)
+    # The five BSS nectars (Comforting, Motivating, Satisfying, Refreshing,
+    # Invigorating), when the patched StatMonitor has written them. Empty list
+    # = the build has not been patched to persist nectar yet.
+    nectars: list[NectarInfo] = Field(default_factory=list)
 
 
 class CommandRequest(BaseModel):

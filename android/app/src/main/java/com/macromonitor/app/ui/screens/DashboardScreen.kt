@@ -2,8 +2,6 @@ package com.macromonitor.app.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,6 +11,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -53,7 +52,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.macromonitor.app.data.api.AccountSummaryDto
+import com.macromonitor.app.data.api.NectarDto
 import com.macromonitor.app.data.api.PlanterDto
 import com.macromonitor.app.data.api.PlantersResponseDto
 import com.macromonitor.app.data.api.StatusDto
@@ -65,7 +64,6 @@ import com.macromonitor.app.ui.components.CardHeader
 import com.macromonitor.app.ui.components.FieldTile
 import com.macromonitor.app.ui.components.PanelCard
 import com.macromonitor.app.ui.components.StatusPill
-import com.macromonitor.app.ui.components.TinyTag
 import com.macromonitor.app.ui.theme.Accent
 import com.macromonitor.app.ui.theme.Blue
 import com.macromonitor.app.ui.theme.Green
@@ -84,17 +82,15 @@ import com.macromonitor.app.ui.theme.StatusLight
 import com.macromonitor.app.ui.theme.StatusMid
 import com.macromonitor.app.ui.theme.Text
 import java.time.OffsetDateTime
+import kotlin.math.roundToInt
 
 @Composable
 fun DashboardScreen(
-    accounts: List<AccountSummaryDto>,
-    selectedAccountId: String?,
     status: StatusDto?,
     planters: PlantersResponseDto?,
     commandHistory: List<Pair<String, String>>,
     commandBusy: Boolean,
     onCommand: (String) -> Unit,
-    onSelectAccount: (String) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -103,7 +99,6 @@ fun DashboardScreen(
             .padding(vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        AccountSwitcher(accounts, selectedAccountId, onSelectAccount)
         if (status != null) {
             val tick = rememberTick()
             if (status.stale) {
@@ -129,52 +124,6 @@ fun DashboardScreen(
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.padding(top = 12.dp),
                     )
-                }
-            }
-        }
-    }
-}
-
-/** Lets the user flip between monitored accounts (e.g. jidozacac_1 / slyazer). */
-@Composable
-private fun AccountSwitcher(
-    accounts: List<AccountSummaryDto>,
-    selected: String?,
-    onSelect: (String) -> Unit,
-) {
-    if (accounts.size < 2) return
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        accounts.forEach { account ->
-            val active = account.id == selected
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(if (active) Accent.copy(alpha = 0.18f) else Panel)
-                    .border(
-                        1.dp,
-                        if (active) Accent.copy(alpha = 0.8f) else Color(0xFF303958),
-                        RoundedCornerShape(999.dp),
-                    )
-                    .clickable { onSelect(account.id) }
-                    .padding(horizontal = 13.dp, vertical = 8.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(
-                        account.name,
-                        color = if (active) Accent else Text,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    if (account.commandAmbiguous) {
-                        TinyTag("shared", color = Muted)
-                    }
                 }
             }
         }
@@ -357,6 +306,65 @@ private fun PlantersCard(planters: PlantersResponseDto?, tick: Int) {
             for (i in 1..3) {
                 val p = slots.getOrNull(i - 1)
                 PlanterChip(p ?: PlanterDto(slot = i), tick)
+            }
+        }
+        NectarSection(planters?.nectars.orEmpty())
+    }
+}
+
+/** The five BSS nectar levels, read from the patched StatMonitor OCR. */
+@Composable
+private fun NectarSection(nectars: List<NectarDto>) {
+    val shown = nectars.filter { it.level != null }
+    if (shown.isEmpty()) return
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp),
+    ) {
+        Text(
+            "Nectar",
+            color = Muted,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+        )
+        shown.forEach { n ->
+            val color = Assets.nectarColor(n.name)
+            val level = (n.level ?: 0.0).coerceIn(0.0, 100.0).toFloat()
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(9.dp),
+            ) {
+                Text(
+                    n.name.take(3),
+                    color = Text,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.width(30.dp),
+                )
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(9.dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(Color(0xFF232B44)),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(level / 100f)
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(color),
+                    )
+                }
+                Text(
+                    "${level.roundToInt()}%",
+                    color = color,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.End,
+                    modifier = Modifier.width(38.dp),
+                )
             }
         }
     }

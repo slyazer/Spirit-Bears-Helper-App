@@ -1,6 +1,15 @@
 # BUILD_STATUS — Macro Monitor
 
-_Last updated: 2026-10-14 (Phase 6: one-card-per-item dashboard redesign, balloon icon for Converting, launcher icon smaller, auto Wi-Fi/5G URL selection, connect screen branding, 41 tests)
+_Last updated: 2026-10-15 (Phase 7: 5-nectar levels under Planters, `?close Roblox` target, reports row de-cluttered/centered, account switcher on every tab, 45 tests)
+
+Phase 7 (2026-10-15):
+- [x] Nectar: patched `submacros/StatMonitor.ahk` `DetectBuffs()` (live 61 + 69, backups `.bak-20261015-014903`) to write `[Status] NectarComforting/Motivating/Satisfying/Refreshing/Invigorating`. Bridge reads them into `PlantersResponse.nectars`; app renders 5 colour-coded bars under the planter chips. Empty when unpatched (no fabricated zeros). Reload requires F3→F1.
+- [x] `?close` now always sent as `?close Roblox` (Natro's `close` is a no-op without a window title).
+- [x] Reports list: removed the dated icon tile; row text centred.
+- [x] Account switcher moved to `MainScaffold` so it stays visible on Dashboard, Reports and Logs.
+- [x] Bridge tests: 45 passed. Android `compileDebugKotlin`: BUILD SUCCESSFUL. No APK rebuilt (deferred by request).
+
+Phase 6 (2026-10-14): one-card-per-item dashboard redesign, balloon icon for Converting, launcher icon smaller, auto Wi-Fi/5G URL selection, connect screen branding, 41 tests.
 
 Legend: [x] done & verified · [~] partial · [ ] not started · [!] blocked
 
