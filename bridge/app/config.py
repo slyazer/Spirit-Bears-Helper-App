@@ -18,10 +18,10 @@ class AccountConfig(BaseModel):
     """One Natro Macro instance on the host PC.
 
     `natro_dir` is the folder that contains `settings/nm_config.ini` and
-    `settings/debug_log.txt` (i.e. the "THIS ONE" directory).
+    `settings/debug_log.txt` (i.e. your Natro Macro install folder).
     """
 
-    id: str = Field(..., description="Stable id used in URLs, e.g. 'slyazer'")
+    id: str = Field(..., description="Stable id used in URLs, e.g. 'leader'")
     name: str = Field(..., description="Display name shown in the app")
     natro_dir: str = Field(..., description="Absolute path to a Natro Macro install")
     hive_level: int | None = Field(default=None, description="Known hive level, if set")
@@ -37,6 +37,14 @@ class AccountConfig(BaseModel):
     notes: str | None = None
 
 
+def resolve_path(value: str) -> Path:
+    """Resolve a settings path against the bridge root, not the CWD."""
+    path = Path(value)
+    if not path.is_absolute():
+        path = Path(__file__).resolve().parent.parent / path
+    return path
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env", env_prefix="MM_", extra="ignore", case_sensitive=False
@@ -44,22 +52,37 @@ class Settings(BaseSettings):
 
     host: str = "127.0.0.1"
     port: int = 8787
-    api_token: str = "CHANGEME"
     accounts_file: str = "config/accounts.json"
     stale_after_seconds: int = 180
     discord_api_base: str = "https://discord.com/api/v10"
     rate_limit_per_minute: int = 120
     command_prefix: str = "?"
 
+    # -- Auth: local users + sessions (replaces the shared API token) ------
+    users_file: str = "config/users.json"
+    sessions_file: str = "config/sessions.json"
+    session_ttl_seconds: int = 2_592_000  # 30 days
+    session_idle_seconds: int = 604_800  # 7 days
+    login_max_attempts: int = 8
+    login_window_seconds: int = 300
+    login_lockout_seconds: int = 300
+
+    # -- Pairing / discovery ----------------------------------------------
+    pairing_file: str = "config/pairing.json"
+    pairing_ttl_seconds: int = 600
+    enable_pairing: bool = True
+    enable_mdns: bool = True
+    service_name: str = "Macro Monitor Bridge"
+
     # Request timeouts (seconds)
     http_timeout: float = 15.0
-    # Whether to allow HTTP (no TLS) — expected True only over a private tailnet.
-    allow_insecure_transport: bool = True
+    # Optional TLS. When both are set the bridge serves HTTPS; otherwise HTTP
+    # (acceptable only on a trusted private network such as a LAN or tailnet).
+    tls_cert_file: str | None = None
+    tls_key_file: str | None = None
 
     def load_accounts(self) -> list[AccountConfig]:
-        path = Path(self.accounts_file)
-        if not path.is_absolute():
-            path = Path(__file__).resolve().parent.parent / path
+        path = resolve_path(self.accounts_file)
         if not path.exists():
             return []
         data = json.loads(path.read_text(encoding="utf-8"))

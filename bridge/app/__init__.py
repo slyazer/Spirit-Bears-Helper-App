@@ -5,4 +5,4 @@ This package is intentionally independent of the Android UI so a future web
 dashboard can reuse the exact same bridge.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

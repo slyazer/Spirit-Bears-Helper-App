@@ -1,11 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Plaintext bridge URL + token live in SharedPreferences; include them in
-     cloud backup and device-to-device transfer so they persist across versions. -->
+<!--
+  The session token is encrypted with a non-exportable Android Keystore key that
+  is NOT backed up or transferred, so restoring the encrypted blob elsewhere is
+  useless and only needlessly exposes it. Exclude the prefs file — the user signs
+  in again after a restore / new device.
+-->
 <data-extraction-rules>
     <cloud-backup>
-        <include domain="sharedpref" path="." />
+        <exclude domain="sharedpref" path="macro_monitor_settings.xml" />
     </cloud-backup>
     <device-transfer>
-        <include domain="sharedpref" path="." />
+        <exclude domain="sharedpref" path="macro_monitor_settings.xml" />
     </device-transfer>
 </data-extraction-rules>

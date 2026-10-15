@@ -6,22 +6,29 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
 
-/** Builds a Retrofit client bound to a specific bridge base URL + token. */
+/** Builds a Retrofit client bound to a specific bridge base URL + session token. */
 object ApiClient {
 
-    fun create(baseUrl: String, token: String): MacroApi {
+    /**
+     * @param token session token attached as `Authorization: Bearer …`. Pass null
+     *   (or blank) for public endpoints such as `/health`, `/api/v1/info` and the
+     *   `auth/login` / `auth/pair` calls that mint a session.
+     */
+    fun create(baseUrl: String, token: String?): MacroApi {
         val logging = HttpLoggingInterceptor().apply {
             level = HttpLoggingInterceptor.Level.BASIC
         }
+        val bearer = token?.trim().orEmpty()
         val client = OkHttpClient.Builder()
             .connectTimeout(8, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS)
             .addInterceptor { chain ->
-                val request = chain.request().newBuilder()
-                    .header("Authorization", "Bearer $token")
+                val builder = chain.request().newBuilder()
                     .header("Accept", "application/json")
-                    .build()
-                chain.proceed(request)
+                if (bearer.isNotEmpty()) {
+                    builder.header("Authorization", "Bearer $bearer")
+                }
+                chain.proceed(builder.build())
             }
             .addInterceptor(logging)
             .build()

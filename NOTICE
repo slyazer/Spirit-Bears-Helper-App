@@ -1,0 +1,58 @@
+# NOTICE
+
+This project (Spirit Bear's Helper App / "Macro Monitor") bundles or depends on the
+third-party software listed below. This file is provided to satisfy attribution and
+notice requirements. Full license texts are available from each project.
+
+## Natro Macro
+- Project: Natro Macro (Bee Swarm Simulator macro)
+- License: GPL-3.0-or-later
+- Usage: This project **reads Natro's output files** (`nm_config.ini`, `settings/debug_log.txt`)
+  and uses its public Discord integration. It does **not** copy, embed, or redistribute Natro
+  source code. Natro is not a dependency that is bundled here.
+
+## Bee Swarm Simulator assets
+- Game icons/sprites are used from the Bee Swarm Simulator wiki, subject to that wiki's and
+  the game's terms. They are included only to identify in-game entities in the UI.
+
+## Python bridge dependencies (bridge/requirements.txt)
+| Package | License |
+|---------|---------|
+| FastAPI | MIT |
+| Uvicorn | BSD-3-Clause |
+| Pydantic | MIT |
+| pydantic-settings | MIT |
+| HTTPX | BSD-3-Clause |
+| python-dotenv | BSD-3-Clause |
+| argon2-cffi | MIT |
+| zeroconf | LGPL-2.1-or-later |
+| segno | BSD-3-Clause |
+| pytest | MIT |
+| pytest-asyncio | Apache-2.0 |
+
+Notes:
+- **zeroconf** is LGPL-2.1-or-later. It is used as an unmodified, dynamically-linked
+  dependency; no source is vendored or altered.
+- Password hashing uses the standard-library `hashlib.scrypt` when `argon2-cffi` is
+  unavailable; `argon2-cffi` wraps the reference Argon2 implementation (Apache-2.0/CC0).
+
+## Android app dependencies (android/)
+| Library | License |
+|---------|---------|
+| Kotlin stdlib / kotlinx-coroutines | Apache-2.0 |
+| AndroidX Core, Lifecycle, Activity | Apache-2.0 |
+| Jetpack Compose (UI, Material3, Icons) | Apache-2.0 |
+| Coil (coil-compose) | Apache-2.0 |
+| CameraX (core, camera2, lifecycle, view) | Apache-2.0 |
+| Retrofit + converter-gson | Apache-2.0 |
+| OkHttp + logging-interceptor | Apache-2.0 |
+| Gson | Apache-2.0 |
+| Google ML Kit barcode-scanning | Google Mobile SDK Terms (proprietary, not OSS) |
+
+Notes:
+- **ML Kit barcode-scanning** is distributed under Google's Mobile SDK Terms of Service, not
+  an OSI license. It is used only for on-device QR code parsing; no image data leaves the
+  device. If you build without it, remove the dependency and the QR scanner screen.
+
+## Build tooling (not shipped in the APK)
+- Gradle, Android Gradle Plugin, JDK (Temurin) — used at build time only.

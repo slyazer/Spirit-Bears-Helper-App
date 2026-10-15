@@ -8,26 +8,40 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 
 from . import __version__
-from .auth import require_token
+from .auth import require_session
 from .models import (
     AccountsResponse,
     CommandRequest,
     CommandResponse,
     HealthResponse,
+    InfoResponse,
     LogsResponse,
     PlantersResponse,
     ReportsResponse,
     StatusResponse,
 )
+from .config import get_settings
 from .registry import AccountRegistry, get_registry
 
 health_router = APIRouter(tags=["health"])
-api = APIRouter(prefix="/api/v1", dependencies=[Depends(require_token)])
+api = APIRouter(prefix="/api/v1", dependencies=[Depends(require_session)])
 
 
 @health_router.get("/health", response_model=HealthResponse)
 async def health() -> HealthResponse:
     return HealthResponse(bridge_version=__version__, server_time=datetime.now(timezone.utc))
+
+
+@health_router.get("/api/v1/info", response_model=InfoResponse)
+async def info() -> InfoResponse:
+    """Public, secret-free service descriptor used by the app after discovery."""
+    settings = get_settings()
+    return InfoResponse(
+        name=settings.service_name,
+        bridge_version=__version__,
+        pairing_enabled=settings.enable_pairing,
+        accounts=len(settings.load_accounts()),
+    )
 
 
 def _service(registry: AccountRegistry, account_id: str):

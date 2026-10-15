@@ -1,15 +1,19 @@
 # API — Macro Monitor Bridge v1
 
-Base URL: `http://<host>:8787` (default loopback; use your Tailscale IP for remote access).
+Base URL: `http://<host>:8787` (default: all interfaces, reachable on the LAN and
+your Tailscale tailnet). The bridge is **not** meant to be exposed to the public
+internet.
 
-All `/api/v1/*` routes require a bearer token:
+Authentication is by **username + password** (created on the PC), which returns a
+revocable session token. Send that token on every protected route:
 
 ```
-Authorization: Bearer <MM_API_TOKEN>
+Authorization: Bearer <session-token>
 ```
 
-Auth failures: `401` (missing/invalid token), `503` (bridge token not configured).
-Unknown account: `404`. Unsupported command: returned as `result: "rejected"` with `200`.
+Auth failures: `401` (missing/invalid/expired session), `429` (too many login
+attempts — see `Retry-After`). Unknown account: `404`. Unsupported command:
+returned as `result: "rejected"` with `200`.
 
 ---
 
@@ -17,7 +21,56 @@ Unknown account: `404`. Unsupported command: returned as `result: "rejected"` wi
 Unauthenticated liveness probe. No secrets returned.
 
 ```json
-{ "status": "ok", "bridge_version": "0.1.0", "server_time": "2026-10-13T15:17:41Z", "auth": "ok" }
+{ "status": "ok", "bridge_version": "0.2.0", "server_time": "2026-10-13T15:17:41Z", "auth": "ok" }
+```
+
+---
+
+## `GET /api/v1/info`
+Unauthenticated, secret-free service descriptor. Used by the app after LAN
+discovery to show the server name before signing in.
+
+```json
+{ "name": "Macro Monitor Bridge", "bridge_version": "0.2.0",
+  "pairing_enabled": true, "accounts": 2, "scheme": "macromonitor", "api_version": "v1" }
+```
+
+---
+
+## `POST /api/v1/auth/login`
+Exchange username + password for a session token. Rate-limited per client and per
+username (lockout returns `429`).
+
+```json
+{ "username": "bob", "password": "...", "device_name": "pixel-7" }
+```
+
+```json
+{ "token": "<opaque-session-token>", "token_type": "Bearer",
+  "username": "bob", "expires_at": "2026-11-14T15:17:41Z" }
+```
+
+## `POST /api/v1/auth/pair`
+Redeem a short-lived, single-use QR pairing code for a session (no password
+typing on first run). Returns the same shape as login. `401` on bad/expired/
+already-used codes, `404` when pairing is disabled.
+
+```json
+{ "code": "A8EC8594", "device_name": "pixel-7" }
+```
+
+## `GET /api/v1/auth/me`
+Identity + session metadata for the current token (requires a session).
+
+## `POST /api/v1/auth/logout`
+Revoke the current session token.
+
+## `POST /api/v1/auth/password`
+Change the signed-in user's password. Requires `current_password`; on success all
+*other* sessions for that user are revoked. Weak passwords return `422`.
+
+```json
+{ "current_password": "...", "new_password": "..." }
 ```
 
 ---
@@ -28,7 +81,7 @@ List configured accounts.
 ```json
 {
   "accounts": [
-    { "id": "follower67", "name": "slyazer", "hive_level": null, "command_ambiguous": false }
+    { "id": "leader", "name": "leader (PC A)", "hive_level": null, "command_ambiguous": false }
   ]
 }
 ```
@@ -43,8 +96,8 @@ Live macro state derived from `debug_log.txt` + session stats from `nm_config.in
 
 ```json
 {
-  "id": "follower67",
-  "name": "slyazer",
+  "id": "leader",
+  "name": "leader (PC A)",
   "hive_level": null,
   "macro_state": "running",
   "field": null,
@@ -75,14 +128,14 @@ Hourly report images, fetched from the account's Discord report channel.
 
 ```json
 {
-  "id": "follower67",
+  "id": "leader",
   "reports": [
     {
       "report_id": "1401...",
       "arrival_time": "2026-08-31T17:00:00Z",
       "image_url": "https://cdn.discordapp.com/...",
-      "image_proxy_url": "/api/v1/accounts/follower67/reports/1401.../image",
-      "author": "slyazer",
+      "image_proxy_url": "/api/v1/accounts/leader/reports/1401.../image",
+      "author": "leader (PC A)",
       "summary": null
     }
   ]
@@ -104,11 +157,11 @@ Recent status embeds/messages from the account's command channel.
 
 ```json
 {
-  "id": "follower67",
+  "id": "leader",
   "logs": [
     { "entry_id": "1401...:0", "timestamp": "2026-08-31T17:00:00Z",
       "title": "Session Report", "body": "...", "color": "#57F287",
-      "author": "slyazer", "image_url": null }
+      "author": "leader (PC A)", "image_url": null }
   ]
 }
 ```
@@ -120,7 +173,7 @@ Current planters with harvest ETA and completion estimate.
 
 ```json
 {
-  "id": "leader61",
+  "id": "leader",
   "available": true,
   "reason": null,
   "planters": [
@@ -152,7 +205,7 @@ Anything else → `result: "rejected"`. Arbitrary input is never shelled or forw
 Response:
 
 ```json
-{ "id": "follower67", "command": "start", "result": "accepted",
+{ "id": "leader", "command": "start", "result": "accepted",
   "correlation_id": "optional-client-id",
   "detail": "Command posted to the macro's command channel." }
 ```
@@ -166,5 +219,7 @@ Response:
 
 ## Errors & versioning
 - All routes are under `/api/v1`; breaking changes will move to `/api/v2`.
+- Unauthenticated routes: `GET /health`, `GET /api/v1/info`, `POST /api/v1/auth/login`,
+  `POST /api/v1/auth/pair`. Everything else requires a session.
 - Error bodies use FastAPI's `{ "detail": "..." }` shape.
-- Secrets (API token, bot tokens) are never returned.
+- Secrets (passwords, session tokens, bot tokens) are never returned or logged.

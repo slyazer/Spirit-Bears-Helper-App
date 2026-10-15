@@ -102,3 +102,49 @@ data class CommandResponseDto(
     @SerializedName("correlation_id") val correlationId: String? = null,
     val detail: String? = null,
 )
+
+// ---------------------------------------------------------------------------
+// Auth & discovery
+// ---------------------------------------------------------------------------
+
+/** Public service descriptor from `GET /api/v1/info` (no secrets). */
+data class InfoDto(
+    val name: String = "Macro Monitor Bridge",
+    @SerializedName("bridge_version") val bridgeVersion: String = "",
+    @SerializedName("pairing_enabled") val pairingEnabled: Boolean = true,
+    val accounts: Int = 0,
+)
+
+data class LoginRequestDto(
+    val username: String,
+    val password: String,
+    @SerializedName("device_name") val deviceName: String? = null,
+)
+
+data class PairRequestDto(
+    val code: String,
+    @SerializedName("device_name") val deviceName: String? = null,
+)
+
+data class ChangePasswordRequestDto(
+    @SerializedName("current_password") val currentPassword: String,
+    @SerializedName("new_password") val newPassword: String,
+)
+
+data class TokenDto(
+    val token: String = "",
+    @SerializedName("token_type") val tokenType: String = "Bearer",
+    val username: String = "",
+    @SerializedName("expires_at") val expiresAt: String? = null,
+)
+
+data class MeDto(
+    val username: String = "",
+    val role: String = "owner",
+    val device: String = "",
+    @SerializedName("created_at") val createdAt: String? = null,
+    @SerializedName("expires_at") val expiresAt: String? = null,
+)
+
+/** Generic `{ "status": "ok" }` acknowledgement. */
+data class OkDto(val status: String = "ok")

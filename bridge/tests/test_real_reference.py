@@ -5,6 +5,7 @@ Skipped automatically when the reference copies are not present (e.g. in CI).
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -13,8 +14,9 @@ from app.config import AccountConfig
 from app.natro.service import NatroService
 
 ROOT = Path(__file__).resolve().parents[2]
-FOLLOWER = ROOT / "natro_reference" / "THIS ONE - 67 FOLLOWER"
-LEADER = ROOT / "natro_reference" / "THIS ONE - 61 LEADER"
+_REF = Path(os.environ.get("MM_NATRO_REFERENCE", ROOT / "natro_reference"))
+FOLLOWER = _REF / os.environ.get("MM_NATRO_FOLLOWER_DIR", "follower")
+LEADER = _REF / os.environ.get("MM_NATRO_LEADER_DIR", "leader")
 
 pytestmark = pytest.mark.skipif(
     not FOLLOWER.exists(), reason="Natro reference copy not present"
@@ -29,7 +31,7 @@ def _svc(dir: Path, account_id: str) -> NatroService:
 
 
 def test_follower_status_reads_real_values() -> None:
-    st = _svc(FOLLOWER, "follower67").status(force=True)
+    st = _svc(FOLLOWER, "follower").status(force=True)
     assert st.macro_state in {"running", "paused", "stopped", "unknown"}
     assert st.honey_total  # e.g. "2.644 B"
     assert st.honey_per_hour  # e.g. "6.189 B"
@@ -37,7 +39,7 @@ def test_follower_status_reads_real_values() -> None:
 
 
 def test_follower_planters_read_real_values() -> None:
-    resp = _svc(FOLLOWER, "follower67").planters()
+    resp = _svc(FOLLOWER, "follower").planters()
     if not resp.available:
         pytest.skip("no active planters in reference copy")
     assert len(resp.planters) >= 1
@@ -48,5 +50,5 @@ def test_follower_planters_read_real_values() -> None:
 
 @pytest.mark.skipif(not LEADER.exists(), reason="61 leader copy not present")
 def test_leader_status_reads_real_values() -> None:
-    st = _svc(LEADER, "leader61").status(force=True)
+    st = _svc(LEADER, "leader").status(force=True)
     assert st.macro_state in {"running", "paused", "stopped", "unknown"}

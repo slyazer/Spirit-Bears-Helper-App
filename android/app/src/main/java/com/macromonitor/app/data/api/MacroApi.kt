@@ -11,6 +11,24 @@ interface MacroApi {
     @GET("health")
     suspend fun health(): HealthDto
 
+    @GET("api/v1/info")
+    suspend fun info(): InfoDto
+
+    @POST("api/v1/auth/login")
+    suspend fun login(@Body body: LoginRequestDto): TokenDto
+
+    @POST("api/v1/auth/pair")
+    suspend fun pair(@Body body: PairRequestDto): TokenDto
+
+    @GET("api/v1/auth/me")
+    suspend fun me(): MeDto
+
+    @POST("api/v1/auth/logout")
+    suspend fun logout(): OkDto
+
+    @POST("api/v1/auth/password")
+    suspend fun changePassword(@Body body: ChangePasswordRequestDto): OkDto
+
     @GET("api/v1/accounts")
     suspend fun accounts(): AccountsResponseDto
 

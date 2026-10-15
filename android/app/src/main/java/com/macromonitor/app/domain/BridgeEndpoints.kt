@@ -1,9 +1,19 @@
 package com.macromonitor.app.domain
 
+/**
+ * Fallback address hints. No machine-specific IPs are baked in any more —
+ * discovery (mDNS) and QR pairing provide the real address. This is only used to
+ * pre-fill the field with a sensible default the user can edit, and to try the
+ * loopback address on an emulator.
+ */
 object BridgeEndpoints {
-    const val WIFI = "http://192.168.1.15:8787"
-    const val TAILSCALE = "http://100.116.124.113:8787"
-    val all = listOf(WIFI, TAILSCALE)
+    const val DEFAULT_PORT = 8787
 
-    fun preferred(onWifi: Boolean): String = if (onWifi) WIFI else TAILSCALE
+    /** Port is the bridge default; host is intentionally generic. */
+    const val LOCAL = "http://127.0.0.1:$DEFAULT_PORT"
+
+    /** Placeholder shown when nothing has been discovered/paired yet. */
+    const val PLACEHOLDER = LOCAL
+
+    fun preferred(@Suppress("UNUSED_PARAMETER") onWifi: Boolean): String = LOCAL
 }

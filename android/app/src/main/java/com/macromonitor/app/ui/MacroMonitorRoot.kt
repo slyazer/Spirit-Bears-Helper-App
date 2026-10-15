@@ -64,19 +64,49 @@ import kotlinx.coroutines.delay
 import androidx.compose.runtime.LaunchedEffect
 
 @Composable
-fun MacroMonitorRoot(vm: RootViewModel = viewModel()) {
+fun MacroMonitorRoot(
+    vm: RootViewModel = viewModel(),
+    pairUri: String? = null,
+    onPairConsumed: () -> Unit = {},
+) {
     val s by vm.state.collectAsState()
+    var showScanner by remember { mutableStateOf(false) }
+
+    // A `macromonitor://pair?...` deep link (or QR scan) feeds the same handler.
+    LaunchedEffect(pairUri) {
+        val payload = com.macromonitor.app.domain.PairPayload.parse(pairUri)
+        if (payload != null) {
+            showScanner = false
+            vm.onPairPayload(payload)
+        }
+        if (pairUri != null) onPairConsumed()
+    }
 
     com.macromonitor.app.ui.theme.MacroMonitorTheme {
         Box(modifier = Modifier.fillMaxSize()) {
-            if (s.connection == ConnectionStatus.Connected) {
+            if (showScanner) {
+                com.macromonitor.app.ui.screens.QrScanScreen(
+                    onScanned = { payload ->
+                        showScanner = false
+                        vm.onPairPayload(payload)
+                    },
+                    onClose = { showScanner = false },
+                )
+            } else if (s.connection == ConnectionStatus.Connected) {
                 MainScaffold(vm, s)
             } else {
                 ConnectScreen(
                     connection = s.connection,
                     message = s.connectionMessage,
                     initialBaseUrl = s.baseUrl,
-                    onConnect = vm::connect,
+                    initialUsername = s.username,
+                    discovered = s.discovered,
+                    discovering = s.discovering,
+                    onLogin = vm::login,
+                    onScanQr = { showScanner = true },
+                    onStartDiscovery = vm::startDiscovery,
+                    onStopDiscovery = vm::stopDiscovery,
+                    onUseDiscovered = vm::useDiscovered,
                 )
             }
 

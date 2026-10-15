@@ -103,7 +103,7 @@ fun TinyTag(text: String, color: Color = Accent) {
     }
 }
 
-/** Lets the user flip between monitored accounts (e.g. jidozacac_1 / slyazer). */
+/** Lets the user flip between monitored accounts (e.g. leader / follower). */
 @Composable
 fun AccountSwitcher(
     accounts: List<AccountSummaryDto>,

@@ -79,10 +79,10 @@ def test_select_start_honey_handles_na() -> None:
 
 def test_select_start_honey_filters_by_bot_id() -> None:
     messages = [
-        _msg("1", "slyazer", "222", _ts(20), description="Current Honey: **33.0 T**"),
-        _msg("2", "jidozacac_1", "111", _ts(19), description="Current Honey: **793.8 B**"),
+        _msg("1", "follower", "222", _ts(20), description="Current Honey: **33.0 T**"),
+        _msg("2", "leader", "111", _ts(19), description="Current Honey: **793.8 B**"),
     ]
-    assert _select_start_honey(messages, bot_id="111", author_name="jidozacac_1 (PC 61)") == 793.8e9
+    assert _select_start_honey(messages, bot_id="111", author_name="leader (PC A)") == 793.8e9
 
 
 # -- report filtering ---------------------------------------------------
@@ -90,23 +90,23 @@ def test_select_start_honey_filters_by_bot_id() -> None:
 
 def test_filter_reports_by_bot_id_dedupes_hour() -> None:
     messages = [
-        _msg("1", "slyazer", "111", _ts(19), image_url="a"),  # keep
-        _msg("2", "jidozacac_1", "222", _ts(19), image_url="b"),  # other bot
-        _msg("3", "slyazer", "111", _ts(18, 30), image_url="d"),  # keep (newest hour 18)
-        _msg("4", "slyazer", "111", _ts(18), image_url="c"),  # dup hour 18
+        _msg("1", "follower", "111", _ts(19), image_url="a"),  # keep
+        _msg("2", "leader", "222", _ts(19), image_url="b"),  # other bot
+        _msg("3", "follower", "111", _ts(18, 30), image_url="d"),  # keep (newest hour 18)
+        _msg("4", "follower", "111", _ts(18), image_url="c"),  # dup hour 18
     ]
-    out = _filter_report_messages(messages, bot_id="111", author_name="slyazer", limit=10)
+    out = _filter_report_messages(messages, bot_id="111", author_name="follower", limit=10)
     kept = [m.id for m, _ in out]
     assert kept == ["1", "3"]
 
 
 def test_filter_reports_falls_back_to_author_name() -> None:
     messages = [
-        _msg("1", "slyazer", "", _ts(19), image_url="a"),  # keep (no id, name match)
-        _msg("2", "jidozacac_1", "", _ts(19), image_url="b"),  # name mismatch
+        _msg("1", "follower", "", _ts(19), image_url="a"),  # keep (no id, name match)
+        _msg("2", "leader", "", _ts(19), image_url="b"),  # name mismatch
     ]
     out = _filter_report_messages(
-        messages, bot_id=None, author_name="slyazer (PC 67)", limit=10
+        messages, bot_id=None, author_name="follower (PC B)", limit=10
     )
     assert [m.id for m, _ in out] == ["1"]
 
@@ -122,7 +122,7 @@ class _FakeDiscord:
         return self._messages
 
     async def me(self):
-        return {"id": "111", "username": "slyazer"}
+        return {"id": "111", "username": "follower"}
 
 
 def _write_ini(tmp_path: Path, text: str) -> None:
@@ -138,15 +138,15 @@ def test_status_async_computes_current_honey(tmp_path: Path) -> None:
     )
     svc = NatroService(
         AccountConfig(
-            id="follower67",
-            name="slyazer (PC 67)",
+            id="follower",
+            name="follower (PC B)",
             natro_dir=str(tmp_path),
             report_channel_id="999",
         ),
         discord_base="https://discord.com/api/v10",
     )
     svc._discord = lambda ini: _FakeDiscord(  # type: ignore[assignment]
-        [_msg("1", "slyazer", "111", _ts(18), description="**Current Honey:** 793.8 B")]
+        [_msg("1", "follower", "111", _ts(18), description="**Current Honey:** 793.8 B")]
     )
     st = asyncio.run(svc.status_async(force=True))
     assert st.honey_total == "829.34 B"  # 793.8 + 35.54
@@ -158,8 +158,8 @@ def test_status_async_without_startup_report_is_honest(tmp_path: Path) -> None:
     _write_ini(tmp_path, "[Status]\nSessionTotalHoney=35.54 B\n")
     svc = NatroService(
         AccountConfig(
-            id="follower67",
-            name="slyazer (PC 67)",
+            id="follower",
+            name="follower (PC B)",
             natro_dir=str(tmp_path),
             report_channel_id="999",
         ),
@@ -181,8 +181,8 @@ def test_status_prefers_current_honey_from_patched_build(tmp_path: Path) -> None
     )
     svc = NatroService(
         AccountConfig(
-            id="leader61",
-            name="jidozacac_1 (PC 61)",
+            id="leader",
+            name="leader (PC A)",
             natro_dir=str(tmp_path),
             report_channel_id="999",
         ),
@@ -205,7 +205,7 @@ def test_status_prefers_current_honey_from_patched_build(tmp_path: Path) -> None
 # -- activity-log filtering --------------------------------------------
 
 
-def _content_msg(mid, text, ts, author="jidozacac_1", author_id="111"):
+def _content_msg(mid, text, ts, author="leader", author_id="111"):
     return DiscordMessage(
         id=mid,
         channel_id="1",
@@ -221,8 +221,8 @@ def _content_msg(mid, text, ts, author="jidozacac_1", author_id="111"):
 def test_logs_drop_honey_pollen_snapshots(tmp_path: Path) -> None:
     svc = NatroService(
         AccountConfig(
-            id="leader61",
-            name="jidozacac_1 (PC 61)",
+            id="leader",
+            name="leader (PC A)",
             natro_dir=str(tmp_path),
             main_channel_id="999",
         ),
@@ -262,7 +262,7 @@ def test_long_gather_is_not_stale(tmp_path: Path) -> None:
     os.utime(log, (old, old))
 
     svc = NatroService(
-        AccountConfig(id="leader61", name="jidozacac_1 (PC 61)", natro_dir=str(tmp_path)),
+        AccountConfig(id="leader", name="leader (PC A)", natro_dir=str(tmp_path)),
         discord_base="https://discord.com/api/v10",
     )
     st = svc.status(force=True)
@@ -293,7 +293,7 @@ def test_converting_is_reported_as_activity(tmp_path: Path) -> None:
     os.utime(log, (old, old))
 
     svc = NatroService(
-        AccountConfig(id="leader61", name="jidozacac_1 (PC 61)", natro_dir=str(tmp_path)),
+        AccountConfig(id="leader", name="leader (PC A)", natro_dir=str(tmp_path)),
         discord_base="https://discord.com/api/v10",
     )
     st = svc.status(force=True)
@@ -323,7 +323,7 @@ def test_stale_drops_activity_and_field(tmp_path: Path) -> None:
     os.utime(log, (old, old))
 
     svc = NatroService(
-        AccountConfig(id="leader61", name="jidozacac_1 (PC 61)", natro_dir=str(tmp_path)),
+        AccountConfig(id="leader", name="leader (PC A)", natro_dir=str(tmp_path)),
         discord_base="https://discord.com/api/v10",
     )
     st = svc.status(force=True)

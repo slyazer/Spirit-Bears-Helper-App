@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Plaintext bridge URL + token live in SharedPreferences; back them up so
-     they survive reinstall / device transfer. -->
+<!--
+  The session token is encrypted with a non-exportable Android Keystore key that
+  is NOT backed up, so restoring the encrypted blob elsewhere would be useless
+  (and backing it up is a needless exposure). Exclude the prefs file entirely —
+  the user simply signs in again after a restore/reinstall. The bridge address
+  and username are also in this file but re-entering them is trivial.
+-->
 <full-backup-content>
-    <include domain="sharedpref" path="." />
+    <exclude domain="sharedpref" path="macro_monitor_settings.xml" />
 </full-backup-content>

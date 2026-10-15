@@ -1,8 +1,17 @@
 # Secrets / local config
 .env
 bridge/.env
+**/.env.bak-*
 **/accounts.json
 !**/accounts.example.json
+**/users.json
+**/sessions.json
+**/pairing.json
+pairing-qr.png
+
+# Logs / runtime data (may contain local IPs and account activity)
+bridge/logs/
+*.log
 
 # Python
 bridge/.venv/
@@ -24,6 +33,9 @@ android/.idea/
 
 # Natro reference copies (large; regenerate locally — do not commit)
 natro_reference/
+
+# IDE
+.idea/
 
 # OS
 Thumbs.db

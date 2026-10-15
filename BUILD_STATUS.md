@@ -1,6 +1,27 @@
 # BUILD_STATUS — Macro Monitor
 
-_Last updated: 2026-10-15 (Phase 7: 5-nectar levels under Planters, `?close Roblox` target, reports row de-cluttered/centered, account switcher on every tab, 45 tests)
+_Last updated: 2026-10-15 (Phase 8: public-release auth overhaul - username/password + sessions + QR pairing + mDNS, Windows setup/uninstall wizard, version 0.2.0, 90 tests)
+
+Phase 9 (2026-10-15) - safe manual upgrades (no auto-update):
+- [x] **Android release signing wired** (`android/app/build.gradle.kts`): `signingConfigs.release` built only when all of `MM_KEYSTORE` / `MM_KEYSTORE_PASSWORD` / `MM_KEY_ALIAS` / `MM_KEY_PASSWORD` are supplied via environment or Gradle properties. Credentials are never read from a committed file. Missing values -> release stays unsigned; debug builds untouched. Verified via `assembleRelease` (signed with a throwaway key) + `apksigner verify`.
+- [x] **Installer upgrades reliably** (`setup.ps1`): stops the running bridge (scheduled task + orphaned port holder) before refreshing the venv, then starts it again so new code actually runs; health check now reports the real (new) version.
+- [x] **Config preserved on re-run**: existing `MM_HOST` / `MM_PORT` kept unless `-BindHost` / `-Port` passed explicitly; `.env` backed up to `.env.bak-<timestamp>` before edits and auto-restored if the write fails.
+- [x] **Testable helpers**: binding/`.env` logic extracted to `setup-lib.ps1`; Pester suite `tests/setup-lib.Tests.ps1` (14 passing).
+- [x] Docs: `RELEASE.md` (signing via env vars, upgrade steps, test commands), `SETUP_WINDOWS.md` (Updating an existing install), `CHANGELOG.md`. No in-app updater / notifications / polling added (out of scope by decision).
+- [ ] **Release keystore**: none configured yet -> distributed APKs remain debug-signed. Production signing is NOT ready until a real keystore is created, built with, and verified.
+
+Phase 8 (2026-10-15) - public-release readiness:
+- [x] **Auth overhaul**: removed the shared `MM_API_TOKEN`. New model = single owner + many instances. Username/password login (Argon2id, scrypt fallback) -> revocable bearer **session token** (absolute + idle TTL, persisted, chmod 600). Login rate-limited (window + lockout). Changing a password revokes sibling sessions. Files: `app/security.py`, `users.py`, `sessions.py`, `ratelimit.py`, `state.py`, `auth.py`, `auth_routes.py`.
+- [x] **QR pairing**: single-use, salted-hash, TTL-bound pairing codes; `macromonitor://pair?...` payload; `qr_png` (segno) + ASCII fallback. CLI `python -m app.cli pair`.
+- [x] **mDNS discovery**: `zeroconf` advertises `Macro Monitor Bridge._macromonitor._tcp.local.` on the LAN (async register inside the uvicorn loop; sync register deadlocked).
+- [x] **CLI** (`app/cli.py`): `create-user`, `reset-password`, `list-users`, `pair`, `info`.
+- [x] **Public `/api/v1/info`** (name, bridge_version, pairing_enabled, accounts, scheme); everything else behind `require_session`; typed 401/409/422/429 errors with `Retry-After`.
+- [x] **Windows wizard**: `setup.ps1` (Python detect -> venv -> deps -> `.env` -> account -> accounts.json -> firewall Private/Domain -> Scheduled Task `MacroMonitorBridge` -> start -> QR) and `uninstall.ps1` (remove task + firewall, optional venv/config purge; never touches Natro data). Both parse-clean.
+- [x] **Android 0.2.0**: QR scan (CameraX + ML Kit), mDNS discovery (`NsdManager`), session token encrypted via Android Keystore AES-GCM (`KeystoreCrypto`), login/pair/logout/change-password, `macromonitor://` deep link, no hardcoded IPs, backup rules exclude the token prefs. `versionCode 2` / `versionName 0.2.0`.
+- [x] Deps/requirements updated (+argon2-cffi, zeroconf, segno); `.env.example`, `.gitignore`, `API.md` rewritten for the new auth.
+- [x] **Tests: 90 passing** (was 45) incl. new `test_security`/`test_users`/`test_sessions`/`test_pairing` + rewritten `test_api_auth`.
+- [x] Live E2E against real uvicorn: mDNS advertised, `/health` + `/info` public, pair->session->`/accounts` (2), single-use 401 on reuse, login 200.
+- [x] Android `assembleDebug`: BUILD SUCCESSFUL -> `MacroMonitor-0.2.0-debug.apk` (45.2 MB, grew due to ML Kit model).
 
 Phase 7 (2026-10-15):
 - [x] Nectar: patched `submacros/StatMonitor.ahk` `DetectBuffs()` (live 61 + 69, backups `.bak-20261015-014903`) to write `[Status] NectarComforting/Motivating/Satisfying/Refreshing/Invigorating`. Bridge reads them into `PlantersResponse.nectars`; app renders 5 colour-coded bars under the planter chips. Empty when unpatched (no fabricated zeros). Reload requires F3→F1.
@@ -15,16 +36,16 @@ Legend: [x] done & verified · [~] partial · [ ] not started · [!] blocked
 
 ## 0. Environment (verified this session)
 - [x] OS: Windows (win32, PowerShell 5.1)
-- [x] Python 3.14.4 at `C:\Users\67\AppData\Local\Programs\Python\Python314\python.exe`
+- [x] Python 3.14.4 at `C:\Python314\python.exe`
 - [x] Node v24.19.0
-- [x] JDK 21 Temurin installed at `C:\Users\67\devtools\jdk-21.0.12.1+1`
-- [x] Android SDK installed at `C:\Users\67\devtools\android-sdk` (platform-35, build-tools 35.0.0, platform-tools)
+- [x] JDK 21 Temurin installed at `C:\devtools\jdk-21`
+- [x] Android SDK installed at `C:\devtools\android-sdk` (platform-35, build-tools 35.0.0, platform-tools)
 - [x] Gradle 8.9 (wrapper generated for the android project)
 - [x] FastAPI stack installs cleanly into `bridge/.venv` on Python 3.14
 
 ## 1. Natro integration discovery (verified against reference copies)
 Reference copies (safe to modify; live builds untouched):
-`natro_reference/THIS ONE - 61 LEADER`, `natro_reference/THIS ONE - 67 FOLLOWER`
+`natro_reference/<leader copy>`, `natro_reference/<follower copy>`
 - [x] Macro state model: `MacroState` 0=stopped, 1=paused, 2=running (natrio_macro.ahk:2076)
 - [x] Live state + event log: `settings/debug_log.txt`, written by `Status.ahk:685`
 - [x] Session stats persist to `nm_config.ini [Status]` (honey, rate, runtime, disconnects...)
@@ -38,7 +59,7 @@ Reference copies (safe to modify; live builds untouched):
 
 ## 2. Windows bridge (`bridge/`)
 - [x] Project scaffold + config loader
-- [x] Auth (bearer token, constant-time)
+- [x] Auth: username/password + sessions (Argon2id, constant-time compare) — v0.2.0 replaced the shared bearer token
 - [x] Natro adapters (ini, debug log, discord)
 - [x] Endpoints: /health, accounts, status, reports, logs, planters, commands
 - [x] Tests (41 passing, incl. integration against real reference copies)
@@ -47,7 +68,7 @@ Reference copies (safe to modify; live builds untouched):
 - [x] Hourly reports fetched end-to-end (image lives in the embed `image.url`; messages have no attachments) + image proxy verified (HTTP 200, image/png)
 - [x] Status is **session-scoped** (`SessionRuntime`/`SessionDisconnects`/`SessionPlantersCollected`), never all-time totals; boost derived from `debug_log` only; stale data reports `macro_state=unknown`
 - [x] `/reports` and `/logs` return `detail` (reason) on failure instead of silently empty
-- [x] Auto-start: `run_bridge_guard.ps1` + Scheduled Task `MacroMonitorBridge` + firewall rule TCP 8787 (verified on loopback + LAN 192.168.1.15)
+- [x] Auto-start: `run_bridge_guard.ps1` + Scheduled Task `MacroMonitorBridge` + firewall rule TCP 8787 (verified on loopback + LAN 192.168.1.100)
 - [x] **Real current honey** (`honey_total`): reads `[Status] CurrentHoney` written by the patched Natro `StatMonitor.ahk` (in-game OCR); falls back to `startup-report OCR + SessionTotalHoney` math on unpatched builds. `honey_per_hour` = `[Status] HoneyAverage` (the F5 Timers "Per Hour" cell); `honey_session` = `[Status] SessionTotalHoney`.
 - [x] **Field timer**: `/status` now returns `field_since` (when the current gather started, reset on every fresh gather even into the same field) and `field_limit_seconds` (parsed from `Limit MM:SS`), so the app shows `elapsed / limit`.
 - [x] **Field-aware staleness**: a long gather (which writes no log lines for its whole duration) is no longer flagged stale; the gather's scheduled end (`field_since + limit`) is treated as the last expected update, with the 180s grace on top.
@@ -55,14 +76,14 @@ Reference copies (safe to modify; live builds untouched):
 - [x] Command allowlist now includes `close` (Natro `close` command).
 - [x] **Current activity label**: `/status` now returns `activity` + `activity_detail` derived from the newest `debug_log` line (`Converting`, `Traveling`, `Resetting`, `Planting`, `Collecting`, `Fighting`, `Starting`, …). While the macro is at the hive converting, the app shows "Converting" (with the detail, e.g. `Balloon`) instead of the last-gathered field, and never looks idle while busy.
 - [x] **Converting-aware staleness**: states where Natro is legitimately quiet (Converting 420s, Traveling/Resetting 240s, Placing/Collecting/Holding/Attacking 300s) get a wider grace window, so the "not sending updates" banner no longer fires during a balloon refresh / conversion wait. When genuinely stale, `field` **and** `activity` are dropped so the app shows only the stale banner (no stale card).
-- [x] `config/accounts.json` now lists only `leader61` + `follower69` (the unused PC 67 option was removed); follower69 keeps `command_ambiguous` so its shared-token safeguard is preserved.
+- [x] `config/accounts.json` now lists only `leader` + `follower` (the unused third account was removed); follower keeps `command_ambiguous` so its shared-token safeguard is preserved.
 
 ## 3. Android app (`android/`)
 - [x] Toolchain (JDK21 + Android SDK) installed
 - [x] Gradle + Compose scaffold (Kotlin 2.0.21, AGP 8.7.3, compileSdk 35, minSdk 26)
 - [x] UI (dashboard, reports + detail/zoom, logs, connect, plain-text prefs)
 - [x] Networking (Retrofit + Gson, bearer auth interceptor, connectivity diagnostics)
-- [x] Account switcher on the Dashboard (jidozacac_1 PC 61 / slyazer PC 69), with "shared" tag for ambiguous accounts
+- [x] Account switcher on the Dashboard (leader PC A / follower PC B), with "shared" tag for ambiguous accounts
 - [x] Stale banner ("macro not sending updates") + reports/logs error `detail` banner (now field-aware; no false positives during long gathers)
 - [x] Responsive fixes: removed fixed card heights (`heightIn(min=)`), ellipsized/wrapped text, root content boxed under the bottom nav (no overlap)
 - [x] **Dashboard simplified**: only "Current honey" and "Honey per hour" metric cards (icon moved to the right, no subtitle/footer clutter); green "Macro status / PLAYING" card removed
@@ -80,30 +101,34 @@ Reference copies (safe to modify; live builds untouched):
 - [x] Real BSS assets: 51 bundled PNGs (`drawable-nodpi`), `Assets.field()`/`mob()`/`booster()`/`activity()`/`activityIcon()`/`planter()` contains-matching, no emoji fallbacks (text monogram fallback only)
 - [x] Reports zoom viewer: pinch (1x–6x), pan, double-tap reset, tap-to-close, FAB Close
 - [x] Logs redesigned: Discord-style accent-bar cards, inline embed/attachment images, no username line, honey/pollen noise filtered
-- [x] Token/bridge URL stored in **plain text** `SharedPreferences` (persist across app updates/reinstalls); `allowBackup` + backup/transfer rules; removed the security-crypto dependency
+- [x] Session token stored **encrypted (Android Keystore AES-GCM)** via `KeystoreCrypto`; bridge URL/username stay in plain prefs for reinstall survival; backup/transfer rules exclude the token prefs file (device-bound key)
 - [x] App icon = Spirit Bear (adaptive launcher foreground, cover-cropped + full-bleed so it fills the circle; in-app top-bar logo)
 - [x] Coil auth header scoped to the bridge host only (never leaks the bearer token to Discord CDN)
-- [x] Debug APK built: `MacroMonitor-0.1.0-debug.apk` (20.06 MB, package com.macromonitor.app)
+- [x] Debug APK built: `MacroMonitor-0.2.0-debug.apk` (45.2 MB, package com.macromonitor.app, versionCode 2)
 
-## 4. Documentation
-- [x] ARCHITECTURE.md
-- [x] API.md
-- [x] SETUP_WINDOWS.md
-- [x] SETUP_ANDROID.md
-- [x] .env.example
-- [x] Final summary
+## 4. Documentation (public-release set)
+- [x] README.md (rewritten; the previous copy was corrupted)
+- [x] ARCHITECTURE.md (auth/discovery/security model updated for 0.2.0)
+- [x] API.md (auth endpoints: login/pair/me/logout/password/info)
+- [x] SETUP_WINDOWS.md (rewritten for the setup/uninstall wizard)
+- [x] SETUP_ANDROID.md (rewritten for QR/pairing/login flow)
+- [x] PRIVACY.md, SECURITY.md, NOTICE (third-party attribution)
+- [x] .env.example (no API token; new auth/pairing/mdns keys)
+- [x] setup.ps1 / uninstall.ps1 (syntax-checked, parse-clean)
+- [x] LICENSE (MIT) + README + PRIVACY.md + SECURITY.md + NOTICE
+- [x] RELEASE.md (version bump locations, build/sign/verify, manual Discord distribution, upgrade contract) + CHANGELOG.md (Keep a Changelog)
 
 ## Verified
-- Bridge tests: 41 passing (incl. integration against real Natro reference copies)
-- Bridge reads real data: leader61 (running, field + live timer, honey/session/rate) and follower69 (running)
+- Bridge tests: 90 passing (incl. integration against real Natro reference copies + auth/pairing/security suites)
+- Bridge reads real data: leader (running, field + live timer, honey/session/rate) and follower (running)
 - `/status` returns `activity`/`activity_detail` live (both accounts currently `activity=Gathering`); converting-state and stale-drop covered by new tests
-- `/status` returns `honey_total` = current balance (from `CurrentHoney`; leader61 shows `2.056 T`, notes "read directly") plus `field_since`/`field_limit_seconds`
-- Field-aware staleness verified live: leader61 gather (mtime 5 min stale) correctly reported `stale=false`; converting (5 min quiet) also `stale=false`
+- `/status` returns `honey_total` = current balance (from `CurrentHoney`; leader shows `2.056 T`, notes "read directly") plus `field_since`/`field_limit_seconds`
+- Field-aware staleness verified live: leader gather (mtime 5 min stale) correctly reported `stale=false`; converting (5 min quiet) also `stale=false`
 - `/logs` verified to drop `Current Honey/Pollen` snapshots and keep macro actions
 - `/reports` returns real `[HH:00:00] Hourly Report` entries from the live Discord channel; report image proxy returns HTTP 200 `image/png`
 - Live uvicorn smoke test over real HTTP: `/health` + `/api/v1/accounts` OK with auth
 - Auto-start verified: bridge reachable on loopback + LAN after process kill (guard/Scheduled Task restarts it)
-- Android `assembleDebug` compiles clean; APK staged at repo root (20.06 MB) — includes the one-card-per-item dashboard, `ic_balloon.png`, smaller launcher icon (16dp inset), auto Wi‑Fi/5G URL selection, and connect screen rebrand (confirmed present in the packaged APK)
+- Android `assembleDebug` BUILD SUCCESSFUL; APK staged at repo root (45.2 MB, MacroMonitor-0.2.0-debug.apk) - includes QR scan (CameraX + ML Kit), mDNS discovery, Keystore-encrypted session token, login/pair/sign-out, macromonitor deep link, plus the existing dashboard/reports/logs features
 - ADB install not yet performed (no phone/emulator attached) — not claimed
 
 ## Environment notes

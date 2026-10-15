@@ -1,100 +1,137 @@
 # SETUP — Windows bridge
 
-Runs the Macro Monitor bridge on the same PC as Natro Macro. It reads Natro's files and
-talks to Discord; it never modifies your Natro installs.
+Runs the Macro Monitor bridge on the same PC as Natro Macro. It reads Natro's
+files and talks to Discord; it **never modifies** your Natro Macro installs.
 
 ## Prerequisites
-- Python 3.11+ (verified on 3.14.4). On this PC:
-  `C:\Users\67\AppData\Local\Programs\Python\Python314\python.exe`
-- Network access to `discord.com` (for reports/logs/commands).
-- Optional: Tailscale for phone access off-LAN.
+- Python **3.10+** (verified on 3.14.4), with `Add python.exe to PATH` ticked.
+- Network access to `discord.com` (for reports / logs / commands).
+- Optional: [Tailscale](https://tailscale.com/) for phone access off-LAN.
+- Optional: a webcam/phone camera on the phone to scan the pairing QR.
 
-## 1. Create the venv and install deps
+## Quick setup (recommended)
+
+Open PowerShell in this folder and run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\setup.ps1
+```
+
+The wizard will:
+
+1. Locate Python and create `bridge\.venv`, installing the dependencies.
+2. Write `bridge\.env` (listens on `0.0.0.0:8787` by default). On a re-run your
+   existing `MM_HOST` / `MM_PORT` are **kept** unless you pass `-BindHost` / `-Port`,
+   and the previous `.env` is backed up first.
+3. Create your **login account** (username + password) — this replaces the old
+   API token. Passwords are hashed with Argon2id and never stored in plaintext.
+4. Copy `accounts.example.json` → `accounts.json` if missing (edit it to point at
+   your Natro Macro folders).
+5. Add an inbound firewall rule for TCP `8787` on the **Private + Domain**
+   profiles only (LAN/Tailscale, never the public internet).
+6. Register the `MacroMonitorBridge` auto-start scheduled task (restarts the
+   bridge automatically if it ever exits).
+7. Start the bridge and print a **QR pairing code** — scan it with the app.
+
+> Steps 5–6 need an elevated (Administrator) PowerShell. Without elevation the
+> wizard still installs everything else and prints the exact commands to add the
+> firewall rule / task yourself.
+
+### Setup options
+```powershell
+.\setup.ps1 -Port 8888            # different port
+.\setup.ps1 -BindHost 127.0.0.1   # loopback only (no LAN/Tailscale)
+.\setup.ps1 -SkipFirewall -SkipTask
+```
+
+## Updating an existing install
+
+Re-running `setup.ps1` is the upgrade path and is safe:
+
+1. It **stops** the running bridge (including any leftover process holding the
+   port), refreshes the code/dependencies, then **starts** it again — so the new
+   version is actually running instead of the old process lingering.
+2. It **backs up** `bridge\.env` to `.env.bak-<timestamp>` before editing and
+   restores it automatically if the edit fails.
+3. It **keeps** your current `MM_HOST` / `MM_PORT`, accounts, and sessions. To
+   deliberately change the bind address/port, pass `-BindHost` / `-Port`.
+
+```powershell
+# upgrade in place, keeping current host/port/config
+powershell -ExecutionPolicy Bypass -File .\setup.ps1
+```
+
+If you ran with `-NoStart`, or the wizard warned it was not elevated, restart the
+task yourself (`Stop-ScheduledTask -TaskName MacroMonitorBridge` then
+`Start-ScheduledTask -TaskName MacroMonitorBridge`).
+
+## Connecting the phone
+
+In the app, tap **Scan the QR code** and point it at the QR the wizard printed.
+If you'd rather not scan:
+
+- **Find nearby** — the app discovers the bridge automatically over mDNS on the
+  same Wi‑Fi.
+- **Enter details** — type the address (e.g. `http://192.168.1.100:8787`) and sign
+  in with your username and password.
+
+### Remote access off-LAN
+1. Install Tailscale on the PC and the phone, log into the same tailnet.
+2. Enter the PC's Tailscale address (e.g. `http://100.x.y.z:8787`).
+3. **Do not** port-forward 8787 to the public internet.
+
+## Manual setup (advanced)
+
 ```powershell
 cd bridge
-& "C:\Users\67\AppData\Local\Programs\Python\Python314\python.exe" -m venv .venv
-& ".\.venv\Scripts\python.exe" -m pip install -r requirements.txt
+py -3 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+Copy-Item ..\.env.example .env          # then edit
+.\.venv\Scripts\python.exe -m app.cli create-user <name>
+.\.venv\Scripts\python.exe run.py
 ```
 
-## 2. Configure environment
+Useful CLI commands (run from `bridge\`):
+
 ```powershell
-Copy-Item ..\.env.example .env
-# then edit .env:
-#   MM_API_TOKEN=<long random token>
-#   MM_HOST=127.0.0.1        (or your Tailscale IP)
-#   MM_ACCOUNTS_FILE=config/accounts.json
-```
-Generate a token:
-```powershell
-& ".\.venv\Scripts\python.exe" -c "import secrets; print(secrets.token_urlsafe(48))"
-```
-Lock down secrets:
-```powershell
-icacls .env /inheritance:r /grant:r "$env:USERNAME:R"
+.\.venv\Scripts\python.exe -m app.cli create-user <name>   # add an account
+.\.venv\Scripts\python.exe -m app.cli list-users           # list accounts
+.\.venv\Scripts\python.exe -m app.cli reset-password <name>
+.\.venv\Scripts\python.exe -m app.cli pair                 # new QR code
+.\.venv\Scripts\python.exe -m app.cli info                 # config summary
 ```
 
-## 3. Define your accounts
-```powershell
-Copy-Item config\accounts.example.json config\accounts.json
-```
-Edit it so each `natro_dir` points at a real Natro Macro folder (the folder that contains
-`settings\nm_config.ini`). Bot tokens are read from each install's ini — do **not** put
-tokens here.
-
-> If two accounts share the same bot token **and** command channel, set
-> `"command_ambiguous": true` on each so the bridge refuses to send ambiguous commands.
-
-## 4. Run
-```powershell
-& ".\.venv\Scripts\python.exe" run.py
-```
 Smoke test:
 ```powershell
 curl http://127.0.0.1:8787/health
-curl -H "Authorization: Bearer <token>" http://127.0.0.1:8787/api/v1/accounts
+curl http://127.0.0.1:8787/api/v1/info
 ```
 
-## 5. Remote access (phone)
-1. Install Tailscale on the PC and phone, log into the same tailnet.
-2. Set `MM_HOST` to the PC's Tailscale IP (e.g. `100.x.y.z`), or keep `127.0.0.1` and use
-   `tailscale serve`/SSH tunnels.
-3. Do **not** port-forward 8787 to the public internet.
-4. Enter `http://<tailscale-ip>:8787` and the `MM_API_TOKEN` in the Android app.
+## Uninstall
 
-## 6. Autostart (already configured — do not repeat)
-The bridge is installed with the **`MacroMonitorBridge`** Scheduled Task (trigger: At log on,
-run hidden) which launches `bridge\run_bridge_guard.ps1`. The guard starts the bridge and
-**automatically restarts it if it ever exits**, so no manual start/restart is needed.
+```powershell
+powershell -ExecutionPolicy Bypass -File .\uninstall.ps1
+```
 
-Already done on this machine:
-- `bridge\.env` created → bind `0.0.0.0:8787`, real `MM_API_TOKEN`.
-- `bridge\config\accounts.json` → point at the live installs (61 leader, 67 follower, 69 follower;
-  67/69 are `command_ambiguous` because they share one bot token + channel).
-- Windows Firewall inbound allow rule **"Macro Monitor Bridge"** TCP **8787** (Private + Domain
-  profiles only — the bridge is reachable on the LAN/Tailscale, not the public internet).
-
-To (re)build it from scratch:
-1. `schtasks /create /tn MacroMonitorBridge ...` or `Register-ScheduledTask` with
-   action `powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File
-   <repo>\bridge\run_bridge_guard.ps1`, working dir = `bridge`, trigger "At log on".
-2. Add firewall rule:
-   `netsh advfirewall firewall add rule name="Macro Monitor Bridge" dir=in action=allow protocol=TCP localport=8787 profile=private,domain`
-   (run from an elevated prompt).
-
-Check it is up: `curl http://127.0.0.1:8787/health`. Logs land in `bridge\logs\`.
+Removes the auto-start task and firewall rule. Your configuration is **preserved**
+by default; add `-RemoveVenv` and/or `-PurgeConfig` for a deeper clean. Natro
+Macro data is never removed.
 
 ## Troubleshooting
-- `503 Bridge API token is not configured` → set a real `MM_API_TOKEN`.
-- `/status` shows `stale: true` → the macro isn't running / log isn't updating. Status now reports
-  `macro_state: "unknown"` (not "running") for stale accounts, and stats are **session-scoped**
-  (they never show all-time totals).
-- Commands `failed` → no valid bot token in `nm_config.ini [Status]`, or Discord unreachable.
-- Reports/logs empty → check the `detail` field in the response; it now carries the reason
-  (missing channel config, or `Discord API <status>`).
-- **Discord `403 error 1010` (Cloudflare)** → Python `httpx` is blocked on this machine; the bridge
-  calls `curl.exe` (schannel) instead. If Discord calls start failing, confirm
-  `C:\Windows\System32\curl.exe` exists and that the base Python install is intact (see below).
-- **`SyntaxError: source code string cannot contain null bytes`** on Discord/threaded calls →
-  a base-Python stdlib file is corrupted. This build repaired
-  `...\Python314\Lib\concurrent\futures\thread.py` (had embedded NUL bytes). To verify:
-  `python -c "import concurrent.futures.thread"`. If it errors, reinstall/repair Python 3.14.
+- **Nothing answers on `/health`** — check `bridge\logs\`. Start the bridge
+  manually from `bridge\` with `.\.venv\Scripts\python.exe run.py` to see errors.
+- **`/status` shows `stale: true`** — the macro isn't running / the log isn't
+  updating. Stale accounts report `macro_state: "unknown"` (never "running"), and
+  stats are session-scoped.
+- **Login returns 401** — wrong username/password. After repeated failures the
+  bridge rate-limits with `429` and a `Retry-After` header.
+- **Login returns 429** — too many attempts; wait the indicated time or restart
+  the bridge.
+- **Commands `failed`** — no valid bot token in `nm_config.ini [Status]`, or
+  Discord unreachable.
+- **Reports/logs empty** — check the `detail` field in the response.
+- **Discord `403 error 1010` (Cloudflare)** — Python `httpx` is blocked on this
+  machine; the bridge falls back to `curl.exe` (schannel). Confirm
+  `C:\Windows\System32\curl.exe` exists.
+- **`SyntaxError: ... null bytes`** on Discord calls — a base-Python stdlib file
+  is corrupted; repair the Python install.

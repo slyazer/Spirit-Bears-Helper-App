@@ -21,6 +21,17 @@ class HealthResponse(BaseModel):
     auth: Literal["ok"] = "ok"
 
 
+class InfoResponse(BaseModel):
+    """Public service descriptor (no secrets) for discovery / handshake."""
+
+    name: str
+    bridge_version: str
+    pairing_enabled: bool = True
+    accounts: int = 0
+    scheme: str = "macromonitor"
+    api_version: str = "v1"
+
+
 class AccountSummary(BaseModel):
     id: str
     name: str

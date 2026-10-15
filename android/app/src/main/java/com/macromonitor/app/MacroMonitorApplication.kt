@@ -28,7 +28,7 @@ class MacroMonitorApplication : Application(), ImageLoaderFactory {
             .addInterceptor { chain ->
                 val request = chain.request()
                 val bridgeHost = container.secureStore.baseUrl.toHttpUrlOrNull()?.host
-                val token = container.secureStore.tokenOrNull()
+                val token = container.secureStore.sessionTokenOrNull()
                 val isBridgeRequest =
                     bridgeHost != null && request.url.host.equals(bridgeHost, ignoreCase = true)
                 val authorized = if (isBridgeRequest && !token.isNullOrBlank()) {

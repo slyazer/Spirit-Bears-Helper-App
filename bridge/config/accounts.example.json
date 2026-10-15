@@ -1,18 +1,18 @@
 {
   "accounts": [
     {
-      "id": "slyazer",
-      "name": "slyazer",
+      "id": "leader",
+      "name": "leader (PC A)",
       "hive_level": 20,
-      "natro_dir": "C:/Users/67/Downloads/THIS ONE",
-      "notes": "Follower account on the 67 build."
+      "natro_dir": "C:/Natro/THIS ONE",
+      "notes": "Leader account. Its Natro build posts the hourly reports."
     },
     {
-      "id": "jidozacac_1",
-      "name": "jidozacac_1",
+      "id": "follower",
+      "name": "follower (PC B)",
       "hive_level": null,
-      "natro_dir": "C:/Users/61/Desktop/THIS ONE",
-      "notes": "Leader account on the 61 build. Unique bot token + channel."
+      "natro_dir": "C:/Natro2/THIS ONE",
+      "notes": "Follower account. Give it a unique bot token + channel if you want to send it commands."
     }
   ]
 }

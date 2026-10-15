@@ -8,10 +8,14 @@ import com.macromonitor.app.data.api.LogEntryDto
 import com.macromonitor.app.data.api.PlantersResponseDto
 import com.macromonitor.app.data.api.ReportImageDto
 import com.macromonitor.app.data.api.StatusDto
+import com.macromonitor.app.data.repository.BridgeHttpException
 import com.macromonitor.app.data.repository.MacroRepository
+import com.macromonitor.app.data.prefs.SecureStore
 import com.macromonitor.app.domain.BridgeEndpoints
 import com.macromonitor.app.domain.ConnectionStatus
 import com.macromonitor.app.domain.MacroCommands
+import com.macromonitor.app.domain.PairPayload
+import com.macromonitor.app.net.DiscoveredBridge
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,6 +32,10 @@ data class UiState(
     val connection: ConnectionStatus = ConnectionStatus.Disconnected,
     val connectionMessage: String = "",
     val baseUrl: String = "",
+    val username: String = "",
+    val serverName: String = "",
+    val discovered: List<DiscoveredBridge> = emptyList(),
+    val discovering: Boolean = false,
     val accounts: List<AccountSummaryDto> = emptyList(),
     val selectedAccountId: String? = null,
     val status: StatusDto? = null,
@@ -56,6 +64,7 @@ class RootViewModel(app: Application) : AndroidViewModel(app) {
         UiState(
             baseUrl = if (secureStore.baseUrl.isNotBlank()) secureStore.baseUrl
             else BridgeEndpoints.preferred(connectivity.isOnWifi()),
+            username = secureStore.username,
             connection = if (secureStore.isConfigured()) ConnectionStatus.Checking
             else ConnectionStatus.Disconnected,
         ),
@@ -63,93 +72,186 @@ class RootViewModel(app: Application) : AndroidViewModel(app) {
     val state: StateFlow<UiState> = _state.asStateFlow()
 
     private var pollJob: Job? = null
+    private var discoverJob: Job? = null
 
     fun repo(): MacroRepository? = container.repository()
 
     init {
         if (_state.value.connection == ConnectionStatus.Checking) {
-            connect(secureStore.baseUrl, secureStore.tokenOrNull() ?: "")
+            validateStoredSession()
         }
     }
 
-    /** Validate + store credentials, ping the bridge, then switch to the app. */
-    fun connect(inputBaseUrl: String, token: String) {
-        val trimmedToken = token.trim()
-        if (trimmedToken.isBlank()) {
-            _state.update {
-                it.copy(connection = ConnectionStatus.Error, connectionMessage = "Enter the API token.")
-            }
-            return
-        }
-        val explicit = com.macromonitor.app.data.prefs.SecureStore.normalize(inputBaseUrl)
-        val known = BridgeEndpoints.all
-        val candidates = when {
-            explicit.isBlank() -> {
-                val pref = BridgeEndpoints.preferred(connectivity.isOnWifi())
-                listOf(pref, BridgeEndpoints.all.first { it != pref })
-            }
-            explicit in known -> {
-                val pref = explicit
-                listOf(pref, known.first { it != pref })
-            }
-            else -> listOf(explicit)
-        }.distinct()
+    // -- session bootstrap ---------------------------------------------------
 
-        _state.update { it.copy(connection = ConnectionStatus.Checking, connectionMessage = "Checking bridge…") }
+    /** Confirm a saved session still works, else drop to the sign-in screen. */
+    private fun validateStoredSession() {
         viewModelScope.launch {
-            try {
-                if (!connectivity.canReachInternet()) {
+            val repository = container.repository()
+            if (repository == null) {
+                expireSession("Please sign in.")
+                return@launch
+            }
+            val result = repository.me()
+            result.onSuccess { me ->
+                _state.update {
+                    it.copy(
+                        username = me.username,
+                        connection = ConnectionStatus.Connected,
+                        connectionMessage = "Connected",
+                        screen = Screen.Dashboard,
+                    )
+                }
+                startPolling()
+                refreshAll(showToastOnError = false)
+            }.onFailure { e ->
+                if (e is BridgeHttpException && e.isUnauthorized) {
+                    secureStore.clearSession()
+                    container.resetRepository()
+                    expireSession("Session expired — please sign in again.")
+                } else {
                     _state.update {
                         it.copy(
                             connection = ConnectionStatus.Error,
-                            connectionMessage = "No internet. Bridge is unreachable off the Tailscale network.",
+                            connectionMessage = e.message ?: "Could not reach the bridge.",
                         )
                     }
-                    return@launch
-                }
-                var lastError: Throwable? = null
-                for (candidate in candidates) {
-                    val repo = MacroRepository(candidate, trimmedToken)
-                    val result = repo.ping()
-                    if (result.isSuccess) {
-                        secureStore.save(candidate, trimmedToken)
-                        container.resetRepository()
-                        _state.update {
-                            it.copy(
-                                baseUrl = candidate,
-                                connection = ConnectionStatus.Connected,
-                                connectionMessage = "Connected",
-                                screen = Screen.Dashboard,
-                            )
-                        }
-                        startPolling()
-                        refreshAll(showToastOnError = false)
-                        return@launch
-                    } else {
-                        lastError = result.exceptionOrNull()
-                        if (candidates.size > 1) {
-                            val other = candidates.first { it != candidate }
-                            _state.update { it.copy(connectionMessage = "Trying alternate: $other…") }
-                            delay(400)
-                        }
-                    }
-                }
-                _state.update {
-                    it.copy(
-                        connection = ConnectionStatus.Error,
-                        connectionMessage = "Bridge unreachable: ${lastError?.message ?: "unknown error"}",
-                    )
-                }
-            } catch (e: Exception) {
-                _state.update {
-                    it.copy(
-                        connection = ConnectionStatus.Error,
-                        connectionMessage = e.message ?: "Connection failed",
-                    )
                 }
             }
         }
     }
+
+    private fun expireSession(message: String) {
+        pollJob?.cancel()
+        container.resetRepository()
+        _state.update {
+            it.copy(
+                connection = ConnectionStatus.Disconnected,
+                connectionMessage = message,
+                screen = Screen.Connect,
+            )
+        }
+    }
+
+    // -- login ---------------------------------------------------------------
+
+    /** Sign in with a username + password against the configured address. */
+    fun login(inputBaseUrl: String, username: String, password: String) {
+        val url = resolveUrl(inputBaseUrl)
+        val user = username.trim()
+        if (url.isBlank()) {
+            _state.update { it.copy(connection = ConnectionStatus.Error, connectionMessage = "Enter the bridge address.") }
+            return
+        }
+        if (user.isBlank() || password.isBlank()) {
+            _state.update { it.copy(connection = ConnectionStatus.Error, connectionMessage = "Enter your username and password.") }
+            return
+        }
+        stopDiscovery()
+        _state.update { it.copy(connection = ConnectionStatus.Checking, connectionMessage = "Signing in…", baseUrl = url) }
+        viewModelScope.launch {
+            val anonymous = container.anonymousRepository(url)
+            anonymous.login(user, password, secureStore.deviceName)
+                .onSuccess { token ->
+                    establishSession(url, token.username.ifBlank { user }, token.token, token.expiresAt)
+                }
+                .onFailure { e -> _state.update { it.copy(connection = ConnectionStatus.Error, connectionMessage = friendly(e)) } }
+        }
+    }
+
+    /** Redeem a scanned QR pairing payload: store the endpoint, then either pair or prompt login. */
+    fun onPairPayload(payload: PairPayload) {
+        val url = payload.baseUrl
+        secureStore.saveEndpoint(url)
+        stopDiscovery()
+        _state.update {
+            it.copy(baseUrl = url, serverName = payload.name, connectionMessage = "Found ${payload.name}")
+        }
+        val code = payload.code
+        if (code == null) {
+            _state.update {
+                it.copy(
+                    connection = ConnectionStatus.Disconnected,
+                    connectionMessage = "Enter your username and password to finish setup.",
+                )
+            }
+            return
+        }
+        _state.update { it.copy(connection = ConnectionStatus.Checking, connectionMessage = "Pairing…") }
+        viewModelScope.launch {
+            container.anonymousRepository(url).pair(code, secureStore.deviceName)
+                .onSuccess { token ->
+                    establishSession(url, token.username, token.token, token.expiresAt)
+                }
+                .onFailure { e -> _state.update { it.copy(connection = ConnectionStatus.Error, connectionMessage = friendly(e)) } }
+        }
+    }
+
+    private fun establishSession(url: String, username: String, token: String, expiresAt: String?) {
+        secureStore.save(url, username, token, expiresAt)
+        container.resetRepository()
+        _state.update {
+            it.copy(
+                baseUrl = url,
+                username = username,
+                connection = ConnectionStatus.Connected,
+                connectionMessage = "Connected",
+                screen = Screen.Dashboard,
+            )
+        }
+        startPolling()
+        refreshAll(showToastOnError = false)
+    }
+
+    private fun resolveUrl(input: String): String {
+        val normalized = SecureStore.normalize(input)
+        if (normalized.isNotBlank()) return normalized
+        // Fall back to a discovered bridge or the built-in defaults.
+        val discovered = _state.value.discovered.firstOrNull()?.baseUrl
+        if (!discovered.isNullOrBlank()) return discovered
+        return BridgeEndpoints.preferred(connectivity.isOnWifi())
+    }
+
+    // -- discovery -----------------------------------------------------------
+
+    fun startDiscovery() {
+        if (_state.value.discovering) return
+        discoverJob?.cancel()
+        _state.update { it.copy(discovering = true, discovered = emptyList(), connectionMessage = "Searching the network…") }
+        discoverJob = viewModelScope.launch {
+            try {
+                container.discovery.discover().collect { bridge ->
+                    _state.update { s ->
+                        if (s.discovered.any { it.baseUrl == bridge.baseUrl }) s
+                        else s.copy(discovered = s.discovered + bridge)
+                    }
+                }
+            } finally {
+                _state.update { it.copy(discovering = false) }
+            }
+        }
+    }
+
+    fun stopDiscovery() {
+        discoverJob?.cancel()
+        discoverJob = null
+        _state.update { it.copy(discovering = false) }
+    }
+
+    fun useDiscovered(bridge: DiscoveredBridge) {
+        stopDiscovery()
+        secureStore.saveEndpoint(bridge.baseUrl)
+        _state.update {
+            it.copy(
+                baseUrl = bridge.baseUrl,
+                serverName = bridge.name,
+                connection = ConnectionStatus.Disconnected,
+                connectionMessage = "Enter your username and password.",
+            )
+        }
+    }
+
+    // -- data polling --------------------------------------------------------
 
     private fun startPolling() {
         pollJob?.cancel()
@@ -166,10 +268,6 @@ class RootViewModel(app: Application) : AndroidViewModel(app) {
         refreshAll(showToastOnError = true)
     }
 
-    /**
-     * Re-read the bridge's account list (picks up newly added / renamed accounts
-     * from accounts.json) and refresh the selected account's data.
-     */
     fun reload() {
         viewModelScope.launch {
             _state.update { it.copy(loading = true) }
@@ -208,7 +306,7 @@ class RootViewModel(app: Application) : AndroidViewModel(app) {
                     selectedAccountId = if (stillExists) current else accounts.firstOrNull()?.id,
                 )
             }
-        }
+        }?.onFailure { handleAuthFailure(it) }
     }
 
     private suspend fun refreshStatus(showError: Boolean = false) {
@@ -220,6 +318,7 @@ class RootViewModel(app: Application) : AndroidViewModel(app) {
         repo()?.status(id)?.onSuccess { st ->
             _state.update { it.copy(status = st) }
         }?.onFailure { e ->
+            handleAuthFailure(e)
             if (showError) toast("Status: ${e.message}")
         }
     }
@@ -228,7 +327,7 @@ class RootViewModel(app: Application) : AndroidViewModel(app) {
         val id = _state.value.selectedAccountId ?: return
         repo()?.planters(id)?.onSuccess { p ->
             _state.update { it.copy(planters = p) }
-        }
+        }?.onFailure { handleAuthFailure(it) }
     }
 
     fun refreshReports() {
@@ -239,7 +338,7 @@ class RootViewModel(app: Application) : AndroidViewModel(app) {
         val id = _state.value.selectedAccountId ?: return
         repo()?.reports(id)?.onSuccess { r ->
             _state.update { it.copy(reports = r.reports, reportsDetail = r.detail) }
-        }
+        }?.onFailure { handleAuthFailure(it) }
     }
 
     fun refreshLogs() {
@@ -250,6 +349,15 @@ class RootViewModel(app: Application) : AndroidViewModel(app) {
         val id = _state.value.selectedAccountId ?: return
         repo()?.logs(id)?.onSuccess { l ->
             _state.update { it.copy(logs = l.logs, logsDetail = l.detail) }
+        }?.onFailure { handleAuthFailure(it) }
+    }
+
+    /** Any 401 anywhere means the session is gone — bounce to sign-in. */
+    private fun handleAuthFailure(e: Throwable) {
+        if (e is BridgeHttpException && e.isUnauthorized) {
+            secureStore.clearSession()
+            container.resetRepository()
+            expireSession("Session expired — please sign in again.")
         }
     }
 
@@ -291,6 +399,7 @@ class RootViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 toast(outcome)
             }?.onFailure { e ->
+                handleAuthFailure(e)
                 toast("Command failed: ${e.message}")
             }
             _state.update { it.copy(commandBusy = false) }
@@ -315,14 +424,29 @@ class RootViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(toast = message) }
     }
 
-    fun disconnect() {
+    /** Sign out: best-effort revoke on the bridge, then clear local state. */
+    fun logout() {
+        val repository = repo()
+        viewModelScope.launch {
+            runCatching { repository?.logout() }
+        }
+        fullReset()
+    }
+
+    /** Backwards-compatible alias used by the settings menu. */
+    fun disconnect() = logout()
+
+    private fun fullReset() {
         pollJob?.cancel()
+        stopDiscovery()
         secureStore.clear()
         container.resetRepository()
         _state.value = UiState(
-            baseUrl = "",
+            baseUrl = BridgeEndpoints.preferred(connectivity.isOnWifi()),
             connection = ConnectionStatus.Disconnected,
             connectionMessage = "",
         )
     }
+
+    private fun friendly(e: Throwable): String = e.message ?: "Something went wrong."
 }
