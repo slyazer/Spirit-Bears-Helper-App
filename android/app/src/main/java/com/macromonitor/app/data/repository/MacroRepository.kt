@@ -13,6 +13,7 @@ import com.macromonitor.app.data.api.MacroApi
 import com.macromonitor.app.data.api.MeDto
 import com.macromonitor.app.data.api.PairRequestDto
 import com.macromonitor.app.data.api.PlantersResponseDto
+import com.macromonitor.app.data.api.PopulationDto
 import com.macromonitor.app.data.api.ReportImageDto
 import com.macromonitor.app.data.api.ReportsResponseDto
 import com.macromonitor.app.data.api.StatusDto
@@ -66,6 +67,8 @@ class MacroRepository(
     suspend fun accounts(): Result<List<AccountSummaryDto>> = call { api.accounts().accounts }
 
     suspend fun status(accountId: String): Result<StatusDto> = call { api.status(accountId) }
+
+    suspend fun population(): Result<PopulationDto> = call { api.population() }
 
     suspend fun planters(accountId: String): Result<PlantersResponseDto> =
         call { api.planters(accountId) }

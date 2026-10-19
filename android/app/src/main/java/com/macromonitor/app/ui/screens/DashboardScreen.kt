@@ -55,8 +55,10 @@ import androidx.compose.ui.unit.sp
 import com.macromonitor.app.data.api.NectarDto
 import com.macromonitor.app.data.api.PlanterDto
 import com.macromonitor.app.data.api.PlantersResponseDto
+import com.macromonitor.app.data.api.PopulationDto
 import com.macromonitor.app.data.api.StatusDto
 import com.macromonitor.app.domain.MacroCommands
+import com.macromonitor.app.domain.PopulationStatus
 import com.macromonitor.app.ui.Assets
 import com.macromonitor.app.ui.Format
 import com.macromonitor.app.ui.components.AssetSprite
@@ -88,6 +90,7 @@ import kotlin.math.roundToInt
 fun DashboardScreen(
     status: StatusDto?,
     planters: PlantersResponseDto?,
+    population: PopulationDto?,
     commandHistory: List<Pair<String, String>>,
     commandBusy: Boolean,
     onCommand: (String) -> Unit,
@@ -105,6 +108,7 @@ fun DashboardScreen(
                 StaleBanner(lastUpdated = status.lastUpdated)
             }
             MetricCardRow(status)
+            PopulationCard(population)
             CurrentActivityCard(status, tick)
             PlantersCard(planters, tick)
             CommandConsole(
@@ -213,6 +217,75 @@ private fun MetricCard(
                 )
             }
             leading()
+        }
+    }
+}
+
+/**
+ * Read-only population of the owner's Roblox private server, captured on the PC
+ * by screenshot + OCR and relayed through the bridge. Shows last-known value
+ * (dimmed) when the capture is stale, and a plain waiting state until the first
+ * successful capture — never a fabricated number.
+ */
+@Composable
+private fun PopulationCard(population: PopulationDto?) {
+    val label = PopulationStatus.label(population?.playing, population?.maxPlayers)
+    val live = population?.available == true && label != null
+    val stale = live && population?.stale == true
+    val gradient = listOf(Color(0xFF33408F), Color(0xFF252B63), Color(0xFF181B3D))
+
+    PanelCard(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        gradient = Brush.linearGradient(gradient),
+        borderColor = Color(0xFF4A5FA8),
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "Private server players",
+                    color = Color.White,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                if (stale) {
+                    Text(
+                        "STALE",
+                        color = Color(0xFFFFCF7F),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+            Text(
+                label ?: "\u2014",
+                fontSize = 34.sp,
+                fontWeight = FontWeight.Black,
+                color = if (live && !stale) Color.White else Color.White.copy(alpha = 0.55f),
+                letterSpacing = (-0.8).sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+            val note = when {
+                stale -> "Last capture ${Format.relative(population?.receivedAt)} — the PC may be offline."
+                live -> "Updated ${Format.relative(population?.receivedAt)}"
+                else -> population?.detail ?: "Waiting for the first capture from the PC…"
+            }
+            Text(
+                note,
+                color = Color.White.copy(alpha = 0.78f),
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 4.dp),
+            )
         }
     }
 }

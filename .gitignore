@@ -7,6 +7,7 @@ bridge/.env
 **/users.json
 **/sessions.json
 **/pairing.json
+**/roblox_capture.json
 pairing-qr.png
 
 # Logs / runtime data (may contain local IPs and account activity)
@@ -30,6 +31,12 @@ android/.idea/
 *.aab
 *.keystore
 *.jks
+
+# Packaged Windows EXEs (thin wrappers; build with packaging/build-exes.ps1).
+# Kept out of git — distribute them via the release message. Use `git add -f`
+# if the project later decides to track them (as it tracks the current APK).
+/*.exe
+packaging/.tools/
 
 # Natro reference copies (large; regenerate locally — do not commit)
 natro_reference/

@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.macromonitor.app.data.api.AccountSummaryDto
 import com.macromonitor.app.data.api.LogEntryDto
 import com.macromonitor.app.data.api.PlantersResponseDto
+import com.macromonitor.app.data.api.PopulationDto
 import com.macromonitor.app.data.api.ReportImageDto
 import com.macromonitor.app.data.api.StatusDto
 import com.macromonitor.app.data.repository.BridgeHttpException
@@ -15,6 +16,7 @@ import com.macromonitor.app.domain.BridgeEndpoints
 import com.macromonitor.app.domain.ConnectionStatus
 import com.macromonitor.app.domain.MacroCommands
 import com.macromonitor.app.domain.PairPayload
+import com.macromonitor.app.domain.VersionCompatibility
 import com.macromonitor.app.net.DiscoveredBridge
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -40,6 +42,8 @@ data class UiState(
     val selectedAccountId: String? = null,
     val status: StatusDto? = null,
     val planters: PlantersResponseDto? = null,
+    /** Latest known Roblox private-server population (global, not per-account). */
+    val population: PopulationDto? = null,
     val reports: List<ReportImageDto> = emptyList(),
     val reportsDetail: String? = null,
     val logs: List<LogEntryDto> = emptyList(),
@@ -49,6 +53,8 @@ data class UiState(
     val toast: String? = null,
     val loading: Boolean = false,
     val commandBusy: Boolean = false,
+    /** Non-blocking explanation when the bridge API version is unknown or mismatched. */
+    val versionWarning: String? = null,
 ) {
     val selectedAccount: AccountSummaryDto?
         get() = accounts.firstOrNull { it.id == selectedAccountId }
@@ -103,7 +109,8 @@ class RootViewModel(app: Application) : AndroidViewModel(app) {
                     )
                 }
                 startPolling()
-                refreshAll(showToastOnError = false)
+                refreshAll()
+                checkBridgeCompatibility()
             }.onFailure { e ->
                 if (e is BridgeHttpException && e.isUnauthorized) {
                     secureStore.clearSession()
@@ -200,7 +207,35 @@ class RootViewModel(app: Application) : AndroidViewModel(app) {
             )
         }
         startPolling()
-        refreshAll(showToastOnError = false)
+        refreshAll()
+        checkBridgeCompatibility()
+    }
+
+    /**
+     * One-off handshake against the public `/api/v1/info` endpoint. Runs once per
+     * connected session (not on the status poll) so an incompatible bridge is
+     * explained without adding steady-state network traffic.
+     */
+    private fun checkBridgeCompatibility() {
+        viewModelScope.launch {
+            val repository = repo() ?: return@launch
+            repository.info().onSuccess { info ->
+                val result = VersionCompatibility.evaluate(info.apiVersion)
+                _state.update {
+                    it.copy(versionWarning = VersionCompatibility.message(result, info.apiVersion, info.bridgeVersion))
+                }
+            }.onFailure { e ->
+                // A bridge that answers but has no info endpoint predates the
+                // handshake. Warn, but never block - diagnostics stay reachable.
+                if (e is BridgeHttpException) {
+                    _state.update {
+                        it.copy(
+                            versionWarning = VersionCompatibility.message(VersionCompatibility.Result.Unknown, null, null),
+                        )
+                    }
+                }
+            }
+        }
     }
 
     private fun resolveUrl(input: String): String {
@@ -258,6 +293,7 @@ class RootViewModel(app: Application) : AndroidViewModel(app) {
         pollJob = viewModelScope.launch {
             while (isActive) {
                 refreshStatus()
+                refreshPopulation()
                 delay(10_000)
             }
         }
@@ -265,13 +301,14 @@ class RootViewModel(app: Application) : AndroidViewModel(app) {
 
     fun selectAccount(id: String) {
         _state.update { it.copy(selectedAccountId = id) }
-        refreshAll(showToastOnError = true)
+        refreshAll()
     }
 
     fun reload() {
         viewModelScope.launch {
             _state.update { it.copy(loading = true) }
             refreshAccounts()
+            refreshPopulation()
             if (_state.value.selectedAccountId != null) {
                 refreshStatus()
                 refreshPlanters()
@@ -283,13 +320,14 @@ class RootViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun refreshAll(showToastOnError: Boolean = true) {
+    fun refreshAll() {
         val id = _state.value.selectedAccountId ?: return
         viewModelScope.launch {
             _state.update { it.copy(loading = true) }
             refreshAccounts()
             refreshStatus()
             refreshPlanters()
+            refreshPopulation()
             refreshReportsNow()
             refreshLogsNow()
             _state.update { it.copy(loading = false) }
@@ -309,7 +347,7 @@ class RootViewModel(app: Application) : AndroidViewModel(app) {
         }?.onFailure { handleAuthFailure(it) }
     }
 
-    private suspend fun refreshStatus(showError: Boolean = false) {
+    private suspend fun refreshStatus() {
         val id = _state.value.selectedAccountId
         if (id == null) {
             refreshAccounts()
@@ -317,10 +355,13 @@ class RootViewModel(app: Application) : AndroidViewModel(app) {
         }
         repo()?.status(id)?.onSuccess { st ->
             _state.update { it.copy(status = st) }
-        }?.onFailure { e ->
-            handleAuthFailure(e)
-            if (showError) toast("Status: ${e.message}")
-        }
+        }?.onFailure { handleAuthFailure(it) }
+    }
+
+    private suspend fun refreshPopulation() {
+        repo()?.population()?.onSuccess { p ->
+            _state.update { it.copy(population = p) }
+        }?.onFailure { handleAuthFailure(it) }
     }
 
     private suspend fun refreshPlanters() {

@@ -142,6 +142,40 @@ def test_me_reports_identity(env) -> None:
     assert r.json()["device"] == "phone"
 
 
+def test_me_reports_owner_role_from_user_store(env) -> None:
+    client, *_ = env
+    token = client.post(
+        "/api/v1/auth/login",
+        json={"username": "alice", "password": "correct-horse-battery"},
+    ).json()["token"]
+    r = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200
+    assert r.json()["role"] == "owner"
+
+
+def test_me_reports_non_owner_role_from_user_store(env) -> None:
+    client, _, users, *_ = env
+    users.add("bob", "another-long-passphrase", role="viewer")
+    token = client.post(
+        "/api/v1/auth/login",
+        json={"username": "bob", "password": "another-long-passphrase"},
+    ).json()["token"]
+    r = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200
+    assert r.json()["username"] == "bob"
+    assert r.json()["role"] == "viewer"
+
+
+def test_me_reports_unknown_role_for_orphaned_session(env) -> None:
+    client, _, _, sessions, *_ = env
+    # Mint a session for a username that has no matching user record.
+    session = sessions.create("ghost", device="phone")
+    r = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {session.token}"})
+    assert r.status_code == 200
+    assert r.json()["username"] == "ghost"
+    assert r.json()["role"] == "unknown"
+
+
 def test_change_password(env) -> None:
     client, _, users, *_ = env
     token = client.post(

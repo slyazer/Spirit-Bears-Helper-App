@@ -38,6 +38,25 @@ data class StatusDto(
     val source: String = "",
 )
 
+/**
+ * Latest known population of the owner's Roblox private server, from
+ * `GET /api/v1/roblox/population`. Only the two integers are ever present; when
+ * no capture has succeeded yet [available] is false and the counts are null.
+ * [stale] marks a last-known value whose capture is older than the freshness
+ * window, so the UI can dim it instead of presenting it as current.
+ */
+data class PopulationDto(
+    val available: Boolean = false,
+    val playing: Int? = null,
+    @SerializedName("max_players") val maxPlayers: Int? = null,
+    @SerializedName("captured_at") val capturedAt: String? = null,
+    @SerializedName("received_at") val receivedAt: String? = null,
+    @SerializedName("age_seconds") val ageSeconds: Int? = null,
+    val stale: Boolean = false,
+    val source: String = "roblox-web-screenshot",
+    val detail: String? = null,
+)
+
 data class ReportImageDto(
     @SerializedName("report_id") val reportId: String,
     @SerializedName("arrival_time") val arrivalTime: String,
@@ -113,6 +132,9 @@ data class InfoDto(
     @SerializedName("bridge_version") val bridgeVersion: String = "",
     @SerializedName("pairing_enabled") val pairingEnabled: Boolean = true,
     val accounts: Int = 0,
+    /** Nullable: absent on bridges that predate the version handshake. */
+    val scheme: String? = null,
+    @SerializedName("api_version") val apiVersion: String? = null,
 )
 
 data class LoginRequestDto(

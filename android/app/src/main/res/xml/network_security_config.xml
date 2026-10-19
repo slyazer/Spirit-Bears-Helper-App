@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The bridge runs over a private overlay network (Tailscale) using plain
-     HTTP, so cleartext must be permitted. No public endpoints are exposed. -->
+<!-- The bridge normally runs over a private LAN or a Tailscale tailnet using
+     plain HTTP, so cleartext must be permitted. It is permitted globally rather
+     than per host because the app connects to IP literals (192.168.x.x,
+     100.x.x.x, 127.0.0.1) and Android cannot scope this policy to IP literals.
+     If you run the bridge behind TLS (MM_TLS_CERT_FILE/MM_TLS_KEY_FILE) and type
+     an https:// address, no cleartext is used. See SECURITY.md. -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="true" />
 </network-security-config>

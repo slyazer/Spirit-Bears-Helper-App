@@ -14,6 +14,8 @@ your bridge on the local network. Nothing is phoned home, and no game/account da
 - Field-aware staleness and converting-aware grace (no false "not updating" alerts)
 - Multi-instance support (single owner, many Natro instances) with an account switcher
 - Session vs all-time honey, and a "stale" indicator when the macro stops writing updates
+- Optional **private-server population** (`3/6`) read from your logged-in browser by a
+  local OCR capture agent — read-only, never touches Roblox auth (see [SETUP_WINDOWS.md](SETUP_WINDOWS.md))
 
 ## Security (v0.2.0)
 - **Username + password login** (Argon2id hashing) instead of a shared static token
@@ -29,11 +31,15 @@ See [SECURITY.md](SECURITY.md) and [PRIVACY.md](PRIVACY.md).
 ## Getting started
 
 ### 1. Windows bridge
+Double-click **`MacroMonitor-Setup.exe`** (in the project folder, next to `bridge\`). It will
+ask for administrator permission (Windows needs it for the firewall rule and the auto-start
+task), set up the Python environment, create your login account, optionally install
+**Tailscale** for off-LAN access, register auto-start, and print a **QR pairing code**.
+
+Prefer the scripts? The same wizard is available as PowerShell:
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\setup.ps1
 ```
-The wizard installs the Python environment, creates your login account, adds a firewall rule
-(LAN/Tailscale only), registers an auto-start task, and prints a **QR pairing code**.
 Full details: [SETUP_WINDOWS.md](SETUP_WINDOWS.md).
 
 ### 2. Android app
@@ -42,12 +48,19 @@ details* and sign in). Full details: [SETUP_ANDROID.md](SETUP_ANDROID.md).
 
 ### 3. Remote access (optional)
 Install [Tailscale](https://tailscale.com/) on the PC and phone and use the PC's Tailscale
-address. **Do not** port-forward the bridge to the public internet.
+address. The Windows setup can install it for you (answer `y` at the Tailscale step, or pass
+`-InstallTailscale`). **Do not** port-forward the bridge to the public internet.
 
 ## Repository layout
 - `android/` — Kotlin + Jetpack Compose app
 - `bridge/` — Python FastAPI Windows bridge (Natro adapters, auth, REST API)
-- `natro_reference/` — unmodified reference copies of Natro (not for commit in typical forks; see `.gitignore`)
+- `MacroMonitor-Setup.exe` / `MacroMonitor-Uninstall.exe` — user-facing installers (built by
+  `packaging/build-exes.ps1`; thin wrappers around the scripts below)
+- `packaging/` — EXE build script and icon
+- `natro_reference/` — optional, locally generated reference copies of Natro used by 3 integration tests
+  (`bridge/tests/test_real_reference.py`). Gitignored and absent by default, so those tests skip.
+  To enable them, place a Natro install under `natro_reference/follower` (and optionally
+  `.../leader`), or point `MM_NATRO_REFERENCE` at your own copies.
 - `setup.ps1` / `uninstall.ps1` — Windows installer / remover
 - `.env.example`, `API.md`, `ARCHITECTURE.md`, `SETUP_WINDOWS.md`, `SETUP_ANDROID.md`, `BUILD_STATUS.md`
 

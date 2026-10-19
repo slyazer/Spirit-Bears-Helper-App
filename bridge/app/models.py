@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 MacroState = Literal["running", "paused", "stopped", "unknown"]
 
@@ -144,4 +144,41 @@ class CommandResponse(BaseModel):
     command: str
     result: CommandResult
     correlation_id: str | None = None
+    detail: str | None = None
+
+
+# -- Roblox private-server population (read-only) --------------------------
+# The capture agent sends only the two integers it read from the page. The
+# store rejects anything that is not a plausible population reading so the app
+# never has to defend against malformed upstream data.
+
+MAX_PLAUSIBLE_PLAYERS = 1000
+
+
+class PopulationIngest(BaseModel):
+    """A normalized population sample posted by the Windows capture agent."""
+
+    playing: int = Field(..., ge=0, le=MAX_PLAUSIBLE_PLAYERS)
+    max_players: int = Field(..., ge=1, le=MAX_PLAUSIBLE_PLAYERS)
+    # When the screenshot was taken (agent clock); optional.
+    captured_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def _check_bounds(self) -> "PopulationIngest":
+        if self.playing > self.max_players:
+            raise ValueError("playing cannot exceed max_players")
+        return self
+
+
+class PopulationResponse(BaseModel):
+    """Latest known private-server population, or a reason it is unavailable."""
+
+    available: bool
+    playing: int | None = None
+    max_players: int | None = None
+    captured_at: datetime | None = None
+    received_at: datetime | None = None
+    age_seconds: int | None = None
+    stale: bool = False
+    source: str = "roblox-web-screenshot"
     detail: str | None = None

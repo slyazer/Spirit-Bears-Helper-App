@@ -122,6 +122,21 @@ fun MacroMonitorRoot(
     }
 }
 
+/** Persistent, non-blocking notice about app/bridge version compatibility. */
+@Composable
+private fun VersionBanner(message: String) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Accent.copy(alpha = 0.16f))
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+    ) {
+        Text(message, color = Accent, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
 @Composable
 private fun ToastBanner(message: String, modifier: Modifier = Modifier) {
     Box(
@@ -152,6 +167,10 @@ private fun MainScaffold(vm: RootViewModel, s: UiState) {
                 onReload = vm::reload,
                 onSettings = { overflowMenu = true },
             )
+            val versionWarning = s.versionWarning
+            if (versionWarning != null) {
+                VersionBanner(versionWarning)
+            }
             AccountSwitcher(
                 accounts = s.accounts,
                 selected = s.selectedAccountId,
@@ -163,6 +182,7 @@ private fun MainScaffold(vm: RootViewModel, s: UiState) {
                     Screen.Connect, Screen.Dashboard -> DashboardScreen(
                         status = s.status,
                         planters = s.planters,
+                        population = s.population,
                         commandHistory = s.commandHistory,
                         commandBusy = s.commandBusy,
                         onCommand = vm::sendCommand,

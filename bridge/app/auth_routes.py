@@ -144,10 +144,16 @@ async def pair(
 
 
 @router.get("/me", response_model=MeResponse)
-async def me(session: Session = Depends(require_session)) -> MeResponse:
+async def me(
+    session: Session = Depends(require_session),
+    users: UserStore = Depends(get_user_store),
+) -> MeResponse:
+    # Report the session user's actual role from the user store. Falls back to
+    # "unknown" if the account was removed after the session was minted.
+    user = users.get(session.username)
     return MeResponse(
         username=session.username,
-        role="owner",
+        role=user.role if user is not None else "unknown",
         device=session.device,
         created_at=session.created_at,
         expires_at=session.expires_at,

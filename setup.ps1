@@ -35,12 +35,35 @@ param(
     [string]$BindHost = '0.0.0.0',
     [switch]$SkipFirewall,
     [switch]$SkipTask,
-    [switch]$NoStart
+    [switch]$NoStart,
+    [switch]$InstallTailscale,
+    [switch]$SkipTailscale
 )
 
 $ErrorActionPreference = 'Stop'
-$RepoRoot = $PSScriptRoot
-. (Join-Path $RepoRoot 'setup-lib.ps1')
+
+# Resolve the repository root whether we run as setup.ps1 or as the compiled
+# MacroMonitor-Setup.exe. Inside a compiled EXE $PSScriptRoot is empty, but the
+# executable's own directory is available from the command line. setup-lib.ps1
+# and bridge\ must sit next to the script/exe.
+$scriptDir = if ($PSScriptRoot) {
+    $PSScriptRoot
+} else {
+    try { Split-Path -Parent ([Environment]::GetCommandLineArgs()[0]) } catch { '' }
+}
+$libPath = if ($scriptDir) { Join-Path $scriptDir 'setup-lib.ps1' } else { '' }
+if (-not $libPath -or -not (Test-Path -LiteralPath $libPath)) {
+    Write-Host ('[x] setup-lib.ps1 was not found next to this program (' + $scriptDir + ').') -ForegroundColor Red
+    Write-Host '    Keep the setup program in the project folder, next to setup-lib.ps1 and bridge\.' -ForegroundColor Red
+    exit 1
+}
+. $libPath
+$RepoRoot = Resolve-RepoRoot -Candidates @($PSScriptRoot, $scriptDir)
+if (-not $RepoRoot) {
+    Write-Host ('[x] Could not find bridge\ next to this program (' + $scriptDir + ').') -ForegroundColor Red
+    Write-Host '    Keep the setup program in the project folder, next to setup-lib.ps1 and bridge\.' -ForegroundColor Red
+    exit 1
+}
 $Bridge = Join-Path $RepoRoot 'bridge'
 $Venv = Join-Path $Bridge '.venv'
 $VenvPython = Join-Path $Venv 'Scripts\python.exe'
@@ -125,11 +148,8 @@ function Find-Python {
             try {
                 $all = @($c.Prefix) + @('-c', 'import sys;print("%d.%d"%sys.version_info[:2])')
                 $version = & $cmd.Source @all 2>$null
-                if ($LASTEXITCODE -eq 0 -and $version) {
-                    $parts = $version.Trim().Split('.')
-                    if ([int]$parts[0] -ge 3 -and [int]$parts[1] -ge 10) {
-                        return @{ Exe = $cmd.Source; Prefix = $c.Prefix; Version = $version.Trim() }
-                    }
+                if ($LASTEXITCODE -eq 0 -and (Test-PythonVersion -Version $version)) {
+                    return @{ Exe = $cmd.Source; Prefix = $c.Prefix; Version = $version.Trim() }
                 }
             } catch { }
         }
@@ -140,6 +160,64 @@ function Find-Python {
 function Invoke-Py {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$PyArgs)
     & $script:PyInfo.Exe @($script:PyInfo.Prefix + $PyArgs)
+}
+
+function Get-WingetPath {
+    $cmd = Get-Command winget -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    return $null
+}
+
+function Test-TailscaleInstalled {
+    if (Get-Command tailscale -ErrorAction SilentlyContinue) { return $true }
+    $paths = @()
+    if ($env:ProgramFiles) { $paths += Join-Path $env:ProgramFiles 'Tailscale\tailscale.exe' }
+    if (${env:ProgramFiles(x86)}) { $paths += Join-Path ${env:ProgramFiles(x86)} 'Tailscale\tailscale.exe' }
+    if ($env:LOCALAPPDATA) { $paths += Join-Path $env:LOCALAPPDATA 'Tailscale\tailscale.exe' }
+    foreach ($p in $paths) { if (Test-Path -LiteralPath $p) { return $true } }
+    if (Get-Service -Name 'Tailscale' -ErrorAction SilentlyContinue) { return $true }
+    return $false
+}
+
+# Install the Tailscale client (opt-in only). Prefers winget, falls back to the
+# official MSI. This NEVER signs the user in to a tailnet - that account step
+# stays with the user via "tailscale up".
+function Install-TailscaleClient {
+    $winget = Get-WingetPath
+    $action = Get-TailscaleInstallAction -Requested $true `
+        -AlreadyInstalled (Test-TailscaleInstalled) -WingetAvailable ([bool]$winget)
+    switch ($action) {
+        'already' {
+            Write-Ok 'Tailscale is already installed'
+            return $true
+        }
+        'winget' {
+            Write-Info 'Installing Tailscale via winget ...'
+            & $winget install --id Tailscale.Tailscale --exact --silent --accept-package-agreements --accept-source-agreements
+            if ($LASTEXITCODE -eq 0) { Write-Ok 'Tailscale installed via winget'; return $true }
+            Write-Warn2 ('winget install failed (exit ' + $LASTEXITCODE + '); trying the official installer ...')
+        }
+    }
+
+    $uri = 'https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi'
+    $msi = Join-Path $env:TEMP ('tailscale-setup-' + [guid]::NewGuid().ToString('N') + '.msi')
+    try {
+        try {
+            [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+        } catch { }
+        Write-Info 'Downloading the official Tailscale installer ...'
+        Invoke-WebRequest -Uri $uri -OutFile $msi -UseBasicParsing -TimeoutSec 180
+        Write-Info 'Running the Tailscale installer (silent) ...'
+        $p = Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/i', ('"' + $msi + '"'), '/qn', '/norestart') -Wait -PassThru
+        if ($p.ExitCode -eq 0 -or $p.ExitCode -eq 3010) { Write-Ok 'Tailscale installed'; return $true }
+        Write-Warn2 ('Tailscale installer exited with code ' + $p.ExitCode + '.')
+        return $false
+    } catch {
+        Write-Warn2 ('Could not install Tailscale: ' + $_.Exception.Message)
+        return $false
+    } finally {
+        Remove-Item -LiteralPath $msi -Force -ErrorAction SilentlyContinue
+    }
 }
 
 Write-Host ''
@@ -168,6 +246,13 @@ $existingBinding = Get-EnvBinding -Lines @(Get-Content -LiteralPath $envPath -Er
 $existingHost = $existingBinding.Host
 $existingPort = $existingBinding.Port
 
+# Reject a corrupted MM_PORT in an existing .env BEFORE any [int] cast can throw.
+if ($existingPort -and -not (Test-BridgePortText -Text $existingPort)) {
+    Write-Err2 ('bridge\.env has an invalid MM_PORT (' + $existingPort + ').')
+    Write-Info 'Use a number from 1 to 65535, delete the MM_PORT line, or pass -Port to override.'
+    exit 1
+}
+
 # Only overwrite the bind address/port when the caller explicitly passed them.
 $explicitHost = $PSBoundParameters.ContainsKey('BindHost')
 $explicitPort = $PSBoundParameters.ContainsKey('Port')
@@ -175,6 +260,10 @@ $effective = Get-EffectiveBinding -ExistingHost $existingHost -ExistingPort $exi
     -BindHost $BindHost -Port $Port -ExplicitHost:$explicitHost -ExplicitPort:$explicitPort
 $effectiveHost = $effective.Host
 $effectivePort = $effective.Port
+if (-not (Test-BridgePort -Port $effectivePort)) {
+    Write-Err2 ('Invalid port ' + $effectivePort + '. Use a TCP port between 1 and 65535.')
+    exit 1
+}
 $runningPort = if ($existingPort) { [int]$existingPort } else { $Port }
 
 Write-Step 'Checking for a running bridge'
@@ -216,11 +305,11 @@ if (-not (Test-Path -LiteralPath $envPath)) {
 try {
     $envLines = @(Get-Content -LiteralPath $envPath -ErrorAction SilentlyContinue)
     $envLines = Set-EnvBinding -Lines $envLines -HostAddress $effectiveHost -Port $effectivePort
-    Set-Content -LiteralPath $envPath -Value $envLines -Encoding UTF8
+    Write-EnvFile -Path $envPath -Lines $envLines
 
     $written = @(Get-Content -LiteralPath $envPath -ErrorAction SilentlyContinue)
-    if (-not ($written | Where-Object { $_ -match '^MM_PORT=' })) {
-        throw 'the written .env is missing an MM_PORT line'
+    if (-not (Test-EnvHasBinding -Lines $written)) {
+        throw 'the written .env is missing an MM_HOST or MM_PORT line'
     }
 } catch {
     Write-Err2 ('Updating .env failed: ' + $_.Exception.Message)
@@ -267,11 +356,26 @@ try {
         Write-Step 'Firewall rule (LAN + Tailscale only)'
         if (Test-Admin) {
             $existing = Get-NetFirewallRule -DisplayName $FirewallRule -ErrorAction SilentlyContinue
+            $existingPort = $null
             if ($existing) {
-                Write-Info 'Firewall rule already present'
-            } else {
-                New-NetFirewallRule -DisplayName $FirewallRule -Direction Inbound -Action Allow -Protocol TCP -LocalPort $effectivePort -Profile Private,Domain | Out-Null
-                Write-Ok ('Added inbound rule for TCP ' + $effectivePort + ' (Private + Domain)')
+                $existingPort = @($existing |
+                    Get-NetFirewallPortFilter -ErrorAction SilentlyContinue |
+                    Select-Object -ExpandProperty LocalPort) -join ','
+            }
+            $action = Get-FirewallAction -RuleExists ([bool]$existing) -ExistingPort $existingPort -DesiredPort $effectivePort
+            switch ($action.Action) {
+                'create' {
+                    New-NetFirewallRule -DisplayName $FirewallRule -Direction Inbound -Action Allow -Protocol TCP -LocalPort $effectivePort -Profile Private,Domain | Out-Null
+                    Write-Ok ('Added inbound rule for TCP ' + $effectivePort + ' (Private + Domain)')
+                }
+                'update' {
+                    Remove-NetFirewallRule -DisplayName $FirewallRule -ErrorAction SilentlyContinue
+                    New-NetFirewallRule -DisplayName $FirewallRule -Direction Inbound -Action Allow -Protocol TCP -LocalPort $effectivePort -Profile Private,Domain | Out-Null
+                    Write-Ok ('Updated the firewall rule to TCP ' + $effectivePort + ' (was ' + $existingPort + ')')
+                }
+                'keep' {
+                    Write-Info ('Firewall rule already present for TCP ' + $effectivePort)
+                }
             }
         } else {
             Write-Warn2 'Not elevated - skipped the firewall rule.'
@@ -293,6 +397,31 @@ try {
             Write-Ok ('Scheduled task "' + $TaskName + '" registered')
         } else {
             Write-Warn2 'Not elevated - skipped the auto-start task.'
+        }
+    }
+
+    # --- 7b. Optional Tailscale (off-LAN access) ----------------------------
+    if ($SkipTailscale) {
+        Write-Step 'Off-LAN phone access (Tailscale)'
+        Write-Info 'Skipped (-SkipTailscale). Your bridge is reachable on the LAN/Tailscale as before.'
+    } else {
+        Write-Step 'Off-LAN phone access (Tailscale)'
+        $wantTailscale = $false
+        if ($InstallTailscale) {
+            $wantTailscale = $true
+        } else {
+            $answer = Read-Host '  Install Tailscale so the app can reach the bridge off your LAN/tailnet? (y/N)'
+            $wantTailscale = ($answer -match '^[Yy]')
+        }
+        if ($wantTailscale) {
+            if (Test-Admin) {
+                [void](Install-TailscaleClient)
+                Write-Info 'Next: run "tailscale up" and sign in, then point the app at this PC''s 100.x.y.z address.'
+            } else {
+                Write-Warn2 'Not elevated - cannot install Tailscale. Install it from https://tailscale.com/download or re-run as Administrator.'
+            }
+        } else {
+            Write-Info 'Skipped Tailscale. Your bridge is still reachable on the LAN; re-run and answer y to add it later.'
         }
     }
 

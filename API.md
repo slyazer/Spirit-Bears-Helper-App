@@ -35,6 +35,29 @@ discovery to show the server name before signing in.
   "pairing_enabled": true, "accounts": 2, "scheme": "macromonitor", "api_version": "v1" }
 ```
 
+### Version compatibility policy
+
+`api_version` is the contract between the Android app and the PC bridge.
+`bridge_version` is informational only — a bridge can bump it without breaking
+the API — so it never decides compatibility.
+
+The app declares the one API version it was built against
+(`VersionCompatibility.SUPPORTED_API_VERSION`, currently `v1`) and compares it
+against `api_version` from `GET /api/v1/info` **once per connected session**:
+
+| `api_version` from the bridge | Result    | Behaviour |
+| ----------------------------- | --------- | --------- |
+| equal to `v1`                 | Compatible | No notice shown. |
+| different (e.g. `v2`)         | Incompatible | Persistent banner naming both versions; update the app **and** the bridge together. |
+| missing / blank               | Unknown  | Non-blocking warning — likely an older bridge. Diagnostics stay reachable. |
+| endpoint absent (HTTP error)  | Unknown  | Same non-blocking warning. |
+
+The check is informational, never blocking: a version mismatch must never stop
+the user from reaching status, reports, and logs to diagnose the problem.
+
+Changing `SUPPORTED_API_VERSION` is a breaking contract change and must be made
+on both sides in the same release.
+
 ---
 
 ## `POST /api/v1/auth/login`
@@ -214,6 +237,46 @@ Response:
   Natro's own `GetCommands` poller picks it up.
 - `rejected`: not allowlisted, or the account is `command_ambiguous`.
 - `failed`: no bot token/channel configured, or Discord was unreachable.
+
+---
+
+## `GET /api/v1/roblox/population`
+Latest known population of the owner's Roblox private server. Read-only, global
+(not per-account). Populated by the Windows capture agent — see
+`tools/roblox-population-capture.ps1` and `SETUP_WINDOWS.md`.
+
+```json
+{
+  "available": true,
+  "playing": 3,
+  "max_players": 6,
+  "captured_at": "2026-10-18T12:00:00+00:00",
+  "received_at": "2026-10-18T12:00:01+00:00",
+  "age_seconds": 12,
+  "stale": false,
+  "source": "roblox-web-screenshot",
+  "detail": null
+}
+```
+
+- `available: false` (with `playing`/`max_players` `null`) until the first capture
+  succeeds; `detail` explains the wait.
+- `stale: true` when the newest capture is older than
+  `MM_ROBLOX_POPULATION_STALE_SECONDS`. The last-known value is still returned so
+  the app can show it dimmed — it is never presented as current.
+- Only the two integers are ever present. No player names, ids, tokens, access
+  codes, or screenshots are stored or returned.
+
+## `POST /api/v1/roblox/population`
+Ingest a validated population sample. Used by the capture agent; requires a
+session. The body is validated (both fields integers, `0 <= playing <= max_players`,
+plausible bounds) and rejected with `422` otherwise.
+
+```json
+{ "playing": 3, "max_players": 6, "captured_at": "2026-10-18T12:00:00+00:00" }
+```
+
+Returns the same shape as `GET`. `captured_at` is optional.
 
 ---
 

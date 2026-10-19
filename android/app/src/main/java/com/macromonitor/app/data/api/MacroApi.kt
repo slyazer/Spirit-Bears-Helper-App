@@ -38,6 +38,9 @@ interface MacroApi {
     @GET("api/v1/accounts/{id}/planters")
     suspend fun planters(@Path("id") accountId: String): PlantersResponseDto
 
+    @GET("api/v1/roblox/population")
+    suspend fun population(): PopulationDto
+
     @GET("api/v1/accounts/{id}/reports")
     suspend fun reports(
         @Path("id") accountId: String,

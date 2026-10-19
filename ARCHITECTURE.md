@@ -42,10 +42,14 @@ user's own **Natro Macro** instances running Bee Swarm Simulator on a Windows ho
   (mDNS). No hardcoded IPs or credentials.
 
 ### 2. Windows bridge (`bridge/`)
-- **Python 3.14 + FastAPI + Uvicorn**; extra deps: `python-multipart`, `argon2-cffi`,
-  `zeroconf` (mDNS), `segno` (QR), `curl` via stdlib for Discord fallback.
-- Binds to `0.0.0.0:8787` by default so phones on the LAN/tailnet can reach it; it is never
-  port-forwarded to the public internet. Bind address/port are config-driven (`.env`).
+- **Python 3.14 + FastAPI + Uvicorn**; extra deps: `argon2-cffi`, `zeroconf` (mDNS),
+  `segno` (QR), `httpx`, `curl` via stdlib (`subprocess`) for the Discord fallback path.
+- Binds to the address/port from `.env` (`MM_HOST`/`MM_PORT`). The Windows installer writes
+  `0.0.0.0:8787` so phones on the LAN/tailnet can reach it, and adds a Private/Domain firewall
+  rule for that port; the service is never port-forwarded to the public internet. With **no**
+  `.env` present (a manual/headless launch) the code default is `127.0.0.1:8787`, i.e.
+  loopback-only — deliberately not LAN-exposed until you configure it. TLS is optional
+  (`MM_TLS_CERT_FILE`/`MM_TLS_KEY_FILE`).
 - **Auth (v0.2.0)**: username/password login with **Argon2id** (scrypt fallback) → short-lived
   bearer **session token** (absolute + idle TTL, revocable, persisted). Login is rate-limited
   (in-memory window + lockout). Optional **pairing** grants a session from a single-use,
@@ -58,6 +62,12 @@ user's own **Natro Macro** instances running Bee Swarm Simulator on a Windows ho
 - CLI (`python -m app.cli`): `create-user`, `reset-password`, `list-users`, `pair`, `info`.
 - Windows auto-start: `setup.ps1` registers a `MacroMonitorBridge` scheduled task + a
   Private/Domain firewall rule; `uninstall.ps1` removes them without touching Natro data.
+- **Packaging** (`packaging/build-exes.ps1`): compiles `setup.ps1` / `uninstall.ps1` into
+  `MacroMonitor-Setup.exe` / `MacroMonitor-Uninstall.exe` with **PS2EXE** — real x64 PE files
+  with an embedded icon and a `requireAdministrator` manifest. They are **thin,
+  repository-anchored wrappers**: at runtime they resolve the repo root from their own
+  location and run the scripts in place (no payload is bundled), so they must stay beside
+  `setup-lib.ps1` and `bridge\`. Tailscale install is opt-in (see `setup.ps1` step 7b).
 
 ### 3. Natro data adapters (`bridge/app/natro/`)
 Real, verified sources on the host (paths are per-account, configured, never hardcoded):
@@ -111,6 +121,43 @@ The bridge's `POST /api/v1/accounts/{id}/commands` endpoint:
 - The device stores only the session token, encrypted with the Android Keystore.
 - Command input is validated against an allowlist and scoped to one account id.
 - Attachment proxying validates URL host/size/type; no arbitrary URL fetching.
+- **TLS is server-side only.** `run.py` serves HTTPS when both `MM_TLS_CERT_FILE` and
+  `MM_TLS_KEY_FILE` are set (both must exist/readable, else startup fails); however mDNS
+  discovery and the QR pairing payload embed `http://` URLs, so only a **manually typed
+  `https://`** address actually uses TLS. The documented default stays plain HTTP on a trusted
+  LAN/tailnet.
+
+### 6. Roblox population capture (Windows agent, optional)
+The owner's Roblox private-server population (`3/6`) is **not** available through any
+Roblox API for an anonymous/third-party caller, so it is read from the page the owner is
+already signed into — without touching Roblox auth or cookies.
+
+```
+tools/roblox-population-setup.ps1   (once)  → dedicated bridge user + ACL'd config + logon task
+tools/roblox-population-capture.ps1 (loop)  → open Firefox → screenshot → OCR → POST integers only
+tools/roblox-population-lib.ps1            → OCR parser, capture lock, temp cleanup, ingest body
+```
+
+- The agent signs in to the bridge as a **dedicated low-privilege account** (role `device`),
+  caches the session token, and re-logs in on `401`. It runs as a **logon scheduled task**
+  (`MacroMonitorRobloxPopulation`, `MultipleInstances=IgnoreNew`) so it logs in once and
+  reuses the session; a lock file (`bridge\logs\roblox-population.lock`) makes capture
+  single-flight.
+- Each cycle: launches `firefox -new-window` with the configured private-servers URL, waits
+  a configurable settle delay, finds the new window by handle diff, foregrounds it, captures
+  the **primary monitor**, and runs the **built-in Windows OCR** (`Windows.Media.Ocr`) in
+  PowerShell. The screenshot is a temp file **deleted on every path**.
+- **OCR text is untrusted.** `roblox-population-lib.ps1` locates the `vipServerId` anchor
+  (label-tolerant regexes, tolerating OCR noise like `P`→`1`, and excluding substrings such as
+  `players`/`playerTokens`/`vipServerAccessCode`), then reads the nearest `playing`/`maxPlayers`
+  integers. It requires an **exact server-id match** and a plausible reading
+  (`0 <= playing <= maxPlayers`, bounded), and fails closed otherwise. Only the two integers
+  are ever sent (`POST /api/v1/roblox/population`).
+- The bridge stores the latest sample in an in-memory `PopulationStore` and serves it via
+  `GET /api/v1/roblox/population`. If a refresh fails, the **last-known value is kept and
+  flagged `stale`** after `MM_ROBLOX_POPULATION_STALE_SECONDS`; it is never presented as
+  current. The app shows the count on the dashboard, dimmed when stale, `—` when unavailable.
+- No player names/ids/tokens/access codes are parsed, stored, or transmitted.
 
 ## Data flow (live status)
 1. Android calls `GET /api/v1/accounts/{id}/status` with bearer token.

@@ -26,9 +26,29 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$RepoRoot = $PSScriptRoot
+
+# Resolve the repository root whether we run as uninstall.ps1 or as the compiled
+# MacroMonitor-Uninstall.exe (inside a compiled EXE $PSScriptRoot is empty).
+$scriptDir = if ($PSScriptRoot) {
+    $PSScriptRoot
+} else {
+    try { Split-Path -Parent ([Environment]::GetCommandLineArgs()[0]) } catch { '' }
+}
+$libPath = if ($scriptDir) { Join-Path $scriptDir 'setup-lib.ps1' } else { '' }
+if (-not $libPath -or -not (Test-Path -LiteralPath $libPath)) {
+    Write-Host ('[x] setup-lib.ps1 was not found next to this program (' + $scriptDir + ').') -ForegroundColor Red
+    exit 1
+}
+. $libPath
+$RepoRoot = Resolve-RepoRoot -Candidates @($PSScriptRoot, $scriptDir)
+if (-not $RepoRoot) {
+    Write-Host ('[x] Could not find bridge\ next to this program (' + $scriptDir + ').') -ForegroundColor Red
+    exit 1
+}
 $Bridge = Join-Path $RepoRoot 'bridge'
 $Venv = Join-Path $Bridge '.venv'
+$VenvPython = Join-Path $Venv 'Scripts\python.exe'
+$GuardScript = Join-Path $Bridge 'run_bridge_guard.ps1'
 $TaskName = 'MacroMonitorBridge'
 $FirewallRule = 'Macro Monitor Bridge'
 
@@ -54,18 +74,24 @@ if (-not $Force) {
 
 # --- Stop + remove scheduled task ----------------------------------------
 Write-Step 'Stopping and removing the auto-start task'
+
+# Stop bridge processes whether or not we are elevated: a user may terminate its
+# own processes, and leaving one running would hold the port and block a later
+# reinstall (setup.ps1 could not free it either). Matching is NARROW - only this
+# install's venv interpreter or its guard script - so unrelated processes whose
+# command lines merely contain the folder path are left alone.
+Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { Test-BridgeProcessCommandLine -CommandLine $_.CommandLine -VenvPython $VenvPython -GuardScript $GuardScript } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { Test-BridgeProcessCommandLine -CommandLine $_.CommandLine -VenvPython $VenvPython -GuardScript $GuardScript } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+Write-Ok 'Any running bridge processes stopped'
+
 if (Test-Admin) {
     Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
     Write-Ok 'Scheduled task removed'
-
-    Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -and $_.CommandLine -like ('*' + $Bridge + '*') } |
-        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-    Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -and $_.CommandLine -like '*run_bridge_guard.ps1*' } |
-        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-    Write-Ok 'Any running bridge processes stopped'
 } else {
     Write-Warn2 'Not elevated - run as Administrator to remove the task and firewall rule.'
 }

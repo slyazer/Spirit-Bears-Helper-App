@@ -17,11 +17,15 @@ from .models import (
     InfoResponse,
     LogsResponse,
     PlantersResponse,
+    PopulationIngest,
+    PopulationResponse,
     ReportsResponse,
     StatusResponse,
 )
 from .config import get_settings
 from .registry import AccountRegistry, get_registry
+from .roblox_population import PopulationStore
+from .state import get_population_store
 
 health_router = APIRouter(tags=["health"])
 api = APIRouter(prefix="/api/v1", dependencies=[Depends(require_session)])
@@ -105,3 +109,21 @@ async def post_command(
     return await _service(registry, account_id).send_command(
         body.command, body.correlation_id
     )
+
+
+@api.get("/roblox/population", response_model=PopulationResponse)
+async def get_roblox_population(
+    store: PopulationStore = Depends(get_population_store),
+) -> PopulationResponse:
+    """Latest known population of the owner's Roblox private server."""
+    return store.snapshot()
+
+
+@api.post("/roblox/population", response_model=PopulationResponse)
+async def post_roblox_population(
+    body: PopulationIngest,
+    store: PopulationStore = Depends(get_population_store),
+) -> PopulationResponse:
+    """Ingest a validated population sample from the Windows capture agent."""
+    store.record(body.playing, body.max_players, body.captured_at)
+    return store.snapshot()

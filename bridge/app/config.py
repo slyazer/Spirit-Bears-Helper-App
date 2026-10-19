@@ -50,6 +50,11 @@ class Settings(BaseSettings):
         env_file=".env", env_prefix="MM_", extra="ignore", case_sensitive=False
     )
 
+    # Secure-by-default: with no .env present the bridge listens on loopback only.
+    # The Windows installer (setup.ps1) writes MM_HOST=0.0.0.0 into .env so phones on the
+    # LAN/Tailscale can reach it, and pairs that with a Private/Domain firewall rule. We keep
+    # the code default on loopback so a manual `python run.py` never silently exposes the
+    # bridge to the network without a matching firewall rule.
     host: str = "127.0.0.1"
     port: int = 8787
     accounts_file: str = "config/accounts.json"
@@ -73,6 +78,12 @@ class Settings(BaseSettings):
     enable_pairing: bool = True
     enable_mdns: bool = True
     service_name: str = "Macro Monitor Bridge"
+
+    # -- Roblox private-server population (read-only) ---------------------
+    # How old a capture may be before the app should treat it as stale. The
+    # capture agent refreshes well within this window (default 5 min), so a
+    # value here only covers a temporarily failing capture.
+    roblox_population_stale_seconds: int = 900
 
     # Request timeouts (seconds)
     http_timeout: float = 15.0

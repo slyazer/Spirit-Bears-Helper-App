@@ -10,6 +10,7 @@ from functools import lru_cache
 
 from .config import get_settings, resolve_path
 from .ratelimit import LoginLimiter
+from .roblox_population import PopulationStore
 from .sessions import SessionStore
 from .users import UserStore
 
@@ -39,8 +40,16 @@ def get_login_limiter() -> LoginLimiter:
     )
 
 
+@lru_cache
+def get_population_store() -> PopulationStore:
+    return PopulationStore(
+        stale_after_seconds=get_settings().roblox_population_stale_seconds
+    )
+
+
 def reset_state() -> None:
     """Drop cached stores (used by tests and after config changes)."""
     get_user_store.cache_clear()
     get_session_store.cache_clear()
     get_login_limiter.cache_clear()
+    get_population_store.cache_clear()

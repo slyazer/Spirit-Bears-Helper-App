@@ -52,7 +52,9 @@ Add a matching entry to [`CHANGELOG.md`](CHANGELOG.md) for every release.
 8. Compute the SHA-256 of the APK to publish alongside it (see section 7).
 9. Copy the APK to the repo root as `MacroMonitor-<version>-debug.apk` (or
    `-release.apk`) and note it in the release message.
-10. Post the build + notes + checksum in the distribution channel (see section 8).
+10. Build the Windows installers (see section 4b) so `MacroMonitor-Setup.exe` /
+    `MacroMonitor-Uninstall.exe` are current.
+11. Post the build + notes + checksum in the distribution channel (see section 8).
 
 ---
 
@@ -66,17 +68,20 @@ From the `bridge` directory, using the project venv:
 & .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-Expected at time of writing: 90 passing. Do not ship if tests fail.
+Expected at time of writing: 108 passing, 3 skipped (the skips need a local Natro
+reference copy - see `natro_reference/` in the README). Do not ship if tests fail.
 
-### Installer (PowerShell / Pester)
+### Installer & packaging (PowerShell / Pester)
 
-Covers the upgrade-critical `.env` host/port preservation logic:
+Covers the upgrade-critical `.env` host/port preservation logic, the Tailscale step,
+the repo-root resolver used by the EXEs, and the EXE build output:
 
 ```powershell
-Invoke-Pester .\tests\setup-lib.Tests.ps1
+Invoke-Pester .\tests\setup-lib.Tests.ps1, .\tests\packaging.Tests.ps1
 ```
 
-Expected at time of writing: 14 passing.
+Expected at time of writing: 55 passing (the packaging suite's EXE assertions skip
+until `packaging/build-exes.ps1` has been run).
 
 ---
 
@@ -109,6 +114,49 @@ Output: `android/app/build/outputs/apk/release/app-release.apk`.
 Builds log which mode they are in:
 `Release signing: ENABLED (keystore '...')` or
 `Release signing: not configured - the release APK will be UNSIGNED.`
+
+---
+
+## 4b. Build the Windows installers (EXEs)
+
+The user-facing installers are compiled from the scripts by
+[`packaging/build-exes.ps1`](packaging/build-exes.ps1) using **PS2EXE** (fetched from the
+PowerShell Gallery into `packaging\.tools\` on first build; the module is used only at build
+time):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\packaging\build-exes.ps1
+```
+
+Output (written to the repo root by default):
+
+| File | Source | Notes |
+|------|--------|-------|
+| `MacroMonitor-Setup.exe` | `setup.ps1` | x64 PE, embedded icon, `requireAdministrator` manifest |
+| `MacroMonitor-Uninstall.exe` | `uninstall.ps1` | same |
+
+Options: `-Version 0.2.0.0` (stamped into both), `-OutputDir <dir>`,
+`-IconPath <ico>`, `-NoRequireAdmin`.
+
+**Important:** the EXEs are **thin, repository-anchored wrappers** — they bundle no payload
+and resolve the repo root from their own location at runtime, then run `setup.ps1` /
+`uninstall.ps1` **in place**. They must be distributed **in the project folder**, next to
+`setup-lib.ps1` and `bridge\`; they will not work as standalone downloads. The `.exe` files
+are build artifacts and are git-ignored (`/*.exe`); attach them to the release message
+rather than committing them, or `git add -f` deliberately if the project decides to track
+them (the repo does track the current APK artifact).
+
+Verify the built EXEs (architecture, metadata, manifest, signature):
+
+```powershell
+$p = ".\MacroMonitor-Setup.exe"
+$b = [IO.File]::ReadAllBytes($p); $pe = [BitConverter]::ToInt32($b,0x3C)
+"arch=0x{0:X4}" -f [BitConverter]::ToUInt16($b,$pe+4)      # expect 0x8664 (x64)
+(Get-Item $p).VersionInfo | Format-List ProductName,CompanyName,FileVersion
+(Get-AuthenticodeSignature $p).Status                       # NotSigned unless you sign it
+# manifest: confirm 'requireAdministrator' is embedded
+[Text.Encoding]::ASCII.GetString($b).Contains('requireAdministrator')
+```
 
 ---
 
@@ -247,7 +295,8 @@ Users install the new build **over** the old one. For that to work without data 
 
 ### Bridge upgrade steps
 
-Just re-run the installer after replacing the bridge files:
+Just re-run the installer after replacing the bridge files - double-click
+**`MacroMonitor-Setup.exe`**, or run the script:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\setup.ps1
